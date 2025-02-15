@@ -1,69 +1,108 @@
-# Smart Solver Extension
+<div align="center">
+  <img src="icons/icon128.png" alt="Smart Solver Logo" width="128" height="128">
+  <h1>Smart Solver Extension</h1>
+  <p>
+    <strong>Solve coding problems effortlessly with AI-powered assistance</strong>
+  </p>
+  <p>
+    <a href="#features">Features</a> •
+    <a href="#installation">Installation</a> •
+    <a href="#setup">Setup</a> •
+    <a href="#usage">Usage</a> •
+    <a href="#supported-platforms">Supported Platforms</a>
+  </p>
+</div>
 
-A Chrome extension that automatically solves coding problems and MCQs using the Gemini AI API.
+---
 
-## Features
+## ✨ Features
 
-- Solves coding problems on LeetCode, GeeksForGeeks (GFG), and CodeChef
-- Answers multiple-choice questions
-- Auto-solve mode for continuous solving
-- Clean and modern user interface
-- Powered by Google's Gemini AI
+- 🚀 **Smart Problem Solving** - Automatically solves coding problems on:
+  - LeetCode
+  - GeeksForGeeks (GFG)
+  - CodeChef
+- 🤖 **AI-Powered** - Utilizes Google's Gemini AI for intelligent solutions
+- ⚡ **Auto-Solve Mode** - Automatically solves problems as you browse
+- 🎯 **Multiple Languages** - Supports Python, Java, C++, and more
+- 🎨 **Clean Interface** - Modern and intuitive user interface
 
-## Installation
+## 🔧 Installation
 
-1. Clone this repository or download the ZIP file
-2. Open Chrome and go to `chrome://extensions/`
+1. Clone this repository:
+   ```bash
+   git clone https://github.com/yourusername/Solver_Ext.git
+   ```
+
+2. Open Chrome and navigate to:
+   ```
+   chrome://extensions/
+   ```
+
 3. Enable "Developer mode" in the top right
+
 4. Click "Load unpacked" and select the extension directory
 
-## Setup
+## ⚙️ Setup
 
-1. Get a Gemini API key from [Google AI Studio](https://makersuite.google.com/app/apikey)
-2. Click the extension icon in Chrome
-3. Enter your API key in the settings
-4. Click "Save"
+1. Get your Gemini API key:
+   - Visit [Google AI Studio](https://makersuite.google.com/app/apikey)
+   - Create a new API key
+   - Copy the key
 
-## Usage
+2. Configure the extension:
+   - Click the extension icon in Chrome
+   - Enter your API key in the settings
+   - Click "Save"
+
+## 📖 Usage
 
 ### Manual Solving
 1. Navigate to a problem on LeetCode, GeeksForGeeks, or CodeChef
 2. Click the extension icon
 3. Click "Solve Problem"
-4. Wait for the solution to be applied
+4. Watch as the solution is automatically applied
 
 ### Auto-Solve Mode
 1. Click the extension icon
 2. Toggle "Auto-Solve" to ON
-3. The extension will automatically solve new problems as you navigate
+3. Solutions will be automatically applied as you browse problems
 
-## Supported Websites
+## 🌐 Supported Platforms
 
-Currently, the extension only works with:
-- LeetCode.com
-- GeeksForGeeks (practice.geeksforgeeks.org)
-- CodeChef (codechef.com)
+Currently supports:
+- [LeetCode](https://leetcode.com)
+- [GeeksForGeeks](https://practice.geeksforgeeks.org)
+- [CodeChef](https://codechef.com)
 
-*Note: Support for other coding platforms is under development.*
+*Support for additional coding platforms is under development.*
 
-## Privacy & Security
+## 🔒 Privacy & Security
 
-- Your API key is stored locally in your browser
+- API keys are stored locally in your browser
 - No data is collected or stored externally
 - All processing happens in your browser
 
-## Troubleshooting
+## 🔍 Troubleshooting
 
-If the extension isn't working:
-1. Make sure you've entered a valid Gemini API key
-2. Check if you're on a supported platform (LeetCode, GeeksForGeeks, or CodeChef)
+If you encounter issues:
+1. Verify your Gemini API key is valid
+2. Ensure you're on a supported platform
 3. Try refreshing the page
 4. Disable and re-enable the extension
 
-## Contributing
+## 🤝 Contributing
 
-Feel free to submit issues and pull requests!
+Contributions are welcome! Feel free to:
+- Report bugs
+- Suggest features
+- Submit pull requests
 
-## License
+## 📄 License
 
-MIT License - feel free to use and modify for your needs.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+<div align="center">
+  <p>Made with ❤️ for competitive programmers</p>
+</div>
