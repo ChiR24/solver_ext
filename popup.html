@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Smart Solver</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <h1>Smart Solver</h1>
+    <div class="status-container">
+      <div class="status">Status: <span id="status">Ready</span></div>
+    </div>
+    <div class="controls">
+      <button id="solveButton">Solve Problem</button>
+      <button id="toggleAuto">Auto-Solve: Off</button>
+    </div>
+    <div class="settings">
+      <label for="apiKey">Gemini API Key:</label>
+      <input type="password" id="apiKey" placeholder="Enter your API key">
+      <button id="saveApiKey">Save</button>
+    </div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html> 

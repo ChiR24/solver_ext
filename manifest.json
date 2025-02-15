@@ -1,0 +1,85 @@
+{
+  "manifest_version": 3,
+  "name": "Smart Solver Extension",
+  "version": "1.0",
+  "description": "Automatically solves coding problems and MCQs using AI",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "tabs"
+  ],
+  "host_permissions": [
+    "*://*.leetcode.com/*",
+    "*://*.hackerrank.com/*",
+    "*://*.codewars.com/*",
+    "*://*.hackerearth.com/*",
+    "*://*.codeforces.com/*",
+    "*://*.atcoder.jp/*",
+    "*://*.spoj.com/*",
+    "*://*.geeksforgeeks.org/*",
+    "*://*.interviewbit.com/*",
+    "https://*/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.leetcode.com/problems/*",
+        "*://*.hackerrank.com/challenges/*",
+        "*://*.hackerrank.com/contests/*",
+        "*://*.hackerrank.com/domains/*",
+        "*://*.codewars.com/kata/*",
+        "*://*.codewars.com/kumite/*",
+        "*://*.hackerearth.com/problem/*",
+        "*://*.hackerearth.com/challenges/*",
+        "*://*.codeforces.com/problemset/problem/*",
+        "*://*.atcoder.jp/contests/*/tasks/*",
+        "*://*.spoj.com/problems/*",
+        "*://*.geeksforgeeks.org/problems/*",
+        "*://*.interviewbit.com/problems/*",
+        "https://*/*"
+      ],
+      "js": ["editor-bridges.js", "monaco-bridge.js", "utils.js", "content.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "editor-bridges.js",
+        "monaco-bridge.js",
+        "utils.js",
+        "content.js"
+      ],
+      "matches": [
+        "*://*.leetcode.com/*",
+        "*://*.hackerrank.com/*",
+        "*://*.codewars.com/*",
+        "*://*.hackerearth.com/*",
+        "*://*.codeforces.com/*",
+        "*://*.atcoder.jp/*",
+        "*://*.spoj.com/*",
+        "*://*.geeksforgeeks.org/*",
+        "*://*.interviewbit.com/*",
+        "https://*/*"
+      ]
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+} 
