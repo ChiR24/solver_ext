@@ -1202,50 +1202,193 @@
   // Inject a helper script to access the Ace editor directly
   const injectAceHelper = () => {
     try {
-      // Create a script element to execute in the page context
-      const script = document.createElement('script');
-      script.textContent = `
-        (function() {
-          try {
-            // Wait for Ace editor to be available
-            const checkForAce = setInterval(() => {
-              if (window.ace && window.ace.edit) {
-                clearInterval(checkForAce);
-                
-                // Find all Ace editor elements
-                const aceEditorElements = document.querySelectorAll('.ace_editor');
-                if (aceEditorElements.length > 0) {
-                  // Store the editor instance globally
-                  window.smartSolverAceEditor = window.ace.edit(aceEditorElements[0]);
-                  
-                  // Define a helper method to set the editor value
-                  window.setEditorValue = (value) => {
+      console.log('Attempting to access Ace editor directly to avoid CSP restrictions');
+      
+      // Instead of injecting a script, directly access the Ace editor
+      if (window.ace && window.ace.edit) {
+        // Find all ace editor instances on the page
+        const aceEditorElements = document.querySelectorAll('.ace_editor');
+        if (aceEditorElements.length > 0) {
+          console.log(`Found ${aceEditorElements.length} Ace editor elements`);
+          
+          for (const editorElement of aceEditorElements) {
+            try {
+              // Try to get the editor instance directly
+              const editorId = editorElement.id;
+              if (editorId) {
+                console.log(`Trying to access editor with ID: ${editorId}`);
+                const editor = window.ace.edit(editorId);
+                if (editor) {
+                  // Store the editor instance globally for easy access
+                  window.smartSolverAceEditor = editor;
+
+                  // Define a helper function to set the editor value
+                  window.setEditorValue = function(value) {
                     try {
-                      window.smartSolverAceEditor.setValue(value, 1);
-                      return true;
-                    } catch (err) {
-                      console.error('Failed to set Ace editor value:', err);
+                      if (window.smartSolverAceEditor) {
+                        window.smartSolverAceEditor.setValue(value);
+                        window.smartSolverAceEditor.clearSelection();
+                        console.log('Successfully set editor value using smartSolverAceEditor');
+                        return true;
+                      }
+                      return false;
+                    } catch (e) {
+                      console.error('Error setting Ace editor value:', e);
                       return false;
                     }
                   };
-                  
-                  console.log('Successfully injected Ace helper');
+
+                  console.log('Successfully set up direct Ace editor access by ID');
+                  return;
+                }
+              } else {
+                // Try without ID
+                console.log('Trying to access editor without ID');
+                const editor = window.ace.edit(editorElement);
+                if (editor) {
+                  // Store the editor instance globally for easy access
+                  window.smartSolverAceEditor = editor;
+
+                  // Define a helper function to set the editor value
+                  window.setEditorValue = function(value) {
+                    try {
+                      if (window.smartSolverAceEditor) {
+                        window.smartSolverAceEditor.setValue(value);
+                        window.smartSolverAceEditor.clearSelection();
+                        console.log('Successfully set editor value using smartSolverAceEditor');
+                        return true;
+                      }
+                      return false;
+                    } catch (e) {
+                      console.error('Error setting Ace editor value:', e);
+                      return false;
+                    }
+                  };
+
+                  console.log('Successfully set up direct Ace editor access without ID');
+                  return;
                 }
               }
-            }, 500);
-            
-            // Timeout after 10 seconds
-            setTimeout(() => clearInterval(checkForAce), 10000);
-          } catch (err) {
-            console.error('Error in injected Ace helper:', err);
+            } catch (e) {
+              console.error('Error accessing Ace editor instance:', e);
+            }
           }
-        })();
-      `;
+        } else {
+          console.log('No .ace_editor elements found on the page');
+        }
+
+        // If we couldn't find editor by DOM elements, try a more generic approach
+        try {
+          console.log('Trying to find editor in window object');
+          
+          // First check for global editor variable
+          if (window.editor && typeof window.editor.setValue === 'function') {
+            console.log('Found global editor variable');
+            window.smartSolverAceEditor = window.editor;
+
+            // Define a helper function to set the editor value
+            window.setEditorValue = function(value) {
+              try {
+                if (window.smartSolverAceEditor) {
+                  window.smartSolverAceEditor.setValue(value);
+                  window.smartSolverAceEditor.clearSelection();
+                  console.log('Successfully set editor value using global editor');
+                  return true;
+                }
+                return false;
+              } catch (e) {
+                console.error('Error setting editor value:', e);
+                return false;
+              }
+            };
+
+            console.log('Successfully set up direct editor access via global editor');
+            return;
+          }
+          
+          // Look for any editor instances in the window object
+          for (const key in window) {
+            if (key.includes('editor') && window[key] && typeof window[key].setValue === 'function') {
+              console.log(`Found editor-like object in window.${key}`);
+              window.smartSolverAceEditor = window[key];
+
+              // Define a helper function to set the editor value
+              window.setEditorValue = function(value) {
+                try {
+                  if (window.smartSolverAceEditor) {
+                    window.smartSolverAceEditor.setValue(value);
+                    window.smartSolverAceEditor.clearSelection();
+                    console.log('Successfully set editor value using window object property');
+                    return true;
+                  }
+                  return false;
+                } catch (e) {
+                  console.error('Error setting editor value:', e);
+                  return false;
+                }
+              };
+
+              console.log('Successfully set up direct editor access via window object');
+              return;
+            }
+          }
+          
+          console.log('No editor-like objects found in window');
+        } catch (e) {
+          console.error('Error searching for editor in window object:', e);
+        }
+      } else {
+        console.log('window.ace or window.ace.edit not available');
+      }
       
-      document.head.appendChild(script);
-      document.head.removeChild(script);
-    } catch (err) {
-      console.error('Failed to inject Ace helper:', err);
+      // If we still couldn't find an Ace editor, try to find and use a textarea
+      try {
+        console.log('Trying to find textarea elements');
+        const textareas = document.querySelectorAll('textarea');
+        if (textareas.length > 0) {
+          console.log(`Found ${textareas.length} textarea elements`);
+          
+          // Look for code-related textareas
+          for (const textarea of textareas) {
+            const isCodeEditor = 
+              textarea.classList.contains('ace_text-input') || 
+              textarea.id.includes('code') || 
+              textarea.id.includes('editor') ||
+              textarea.name.includes('code') || 
+              textarea.name.includes('editor') ||
+              textarea.getAttribute('data-role') === 'editor';
+              
+            if (isCodeEditor || textareas.length === 1) {
+              console.log('Found potential code editor textarea');
+              
+              // Define a helper function to set the textarea value
+              window.setEditorValue = function(value) {
+                try {
+                  textarea.value = value;
+                  textarea.dispatchEvent(new Event('input', { bubbles: true }));
+                  textarea.dispatchEvent(new Event('change', { bubbles: true }));
+                  console.log('Successfully set textarea value');
+                  return true;
+                } catch (e) {
+                  console.error('Error setting textarea value:', e);
+                  return false;
+                }
+              };
+              
+              console.log('Successfully set up textarea access');
+              return;
+            }
+          }
+        } else {
+          console.log('No textarea elements found on the page');
+        }
+      } catch (e) {
+        console.error('Error searching for textareas:', e);
+      }
+
+      console.log('Could not set up direct editor access');
+    } catch (e) {
+      console.error('Error in injectAceHelper:', e);
     }
   };
 
