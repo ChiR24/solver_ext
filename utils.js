@@ -2365,6 +2365,7 @@ const applyCodeSolution = async (solution) => {
     const isGeeksForGeeks = hostname.includes('geeksforgeeks.org');
     const isHackerRank = hostname.includes('hackerrank.com');
     const isLeetCode = hostname.includes('leetcode.com');
+    const isAtCoder = hostname.includes('atcoder.jp');
 
     // For tracking if the solution contains a solution class/function
     let hasSolutionClass = false;
@@ -2377,6 +2378,12 @@ const applyCodeSolution = async (solution) => {
       if (match) {
         solutionClassContent = match[1];
       }
+    }
+
+    // Special handler for AtCoder
+    if (isAtCoder) {
+      console.log('Using AtCoder-specific editor handling');
+      return await applyAtCoderSolution(cleanSolution);
     }
 
     while (retryCount < maxRetries) {
@@ -2945,4 +2952,223 @@ const getAtCoderTemplate = async () => {
     console.error('DEBUG - Error getting AtCoder template:', error);
     return '';
   }
-};    
+};
+
+// AtCoder-specific solution application
+const applyAtCoderSolution = async (solution) => {
+  try {
+    console.log('DEBUG - Applying solution to AtCoder editor');
+    
+    // Find the editor element
+    const editorElement = document.querySelector('#editor');
+    if (!editorElement) {
+      throw new Error('AtCoder editor element not found');
+    }
+    
+    // Try to access the AtCoder's global editor variable if available
+    if (window.editor || window.aceEditor) {
+      console.log('DEBUG - Found AtCoder global editor variable');
+      try {
+        const globalEditor = window.editor || window.aceEditor;
+        if (typeof globalEditor.setValue === 'function') {
+          globalEditor.setValue(solution);
+          return true;
+        }
+      } catch (e) {
+        console.error('Error using global editor variable:', e);
+      }
+    }
+    
+    // AtCoder's plain editor specific handling
+    const plainEditor = document.querySelector('.plain') || document.querySelector('[class="plain"]');
+    if (plainEditor) {
+      console.log('DEBUG - Found AtCoder plain editor');
+      
+      // Try to find the textarea within plain editor
+      const plainTextarea = plainEditor.querySelector('textarea');
+      if (plainTextarea) {
+        console.log('DEBUG - Found textarea in plain editor');
+        plainTextarea.value = solution;
+        plainTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+        plainTextarea.dispatchEvent(new Event('change', { bubbles: true }));
+        return true;
+      }
+      
+      // If no textarea, try setting the content directly
+      plainEditor.textContent = solution;
+      plainEditor.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    }
+    
+    // AtCoder's prettyprint editor
+    const prettyEditor = document.querySelector('pre.prettyprint');
+    if (prettyEditor) {
+      console.log('DEBUG - Found AtCoder prettyprint editor');
+      
+      // Check if it has a textarea or input child
+      const prettyInput = prettyEditor.querySelector('textarea, input');
+      if (prettyInput) {
+        prettyInput.value = solution;
+        prettyInput.dispatchEvent(new Event('input', { bubbles: true }));
+        prettyInput.dispatchEvent(new Event('change', { bubbles: true }));
+        return true;
+      }
+      
+      // If not, try to set content directly
+      try {
+        prettyEditor.textContent = solution;
+        prettyEditor.dispatchEvent(new Event('input', { bubbles: true }));
+        
+        // Try to find the hidden input that might be associated
+        const hiddenInputs = document.querySelectorAll('input[type="hidden"][name*="source"], input[type="hidden"][name*="code"]');
+        for (const input of hiddenInputs) {
+          input.value = solution;
+        }
+        
+        return true;
+      } catch (e) {
+        console.error('Error setting prettyprint content:', e);
+      }
+    }
+    
+    // Try different approaches to set the content
+    
+    // Approach 1: Check if it's a textarea
+    const textarea = editorElement.querySelector('textarea');
+    if (textarea) {
+      console.log('DEBUG - Found textarea in AtCoder editor');
+      textarea.value = solution;
+      
+      // Dispatch events to trigger changes
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+      textarea.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    }
+    
+    // Approach 2: Check for ACE editor
+    if (window.ace && editorElement.classList.contains('ace_editor')) {
+      console.log('DEBUG - Found ACE editor');
+      try {
+        const aceEditor = window.ace.edit(editorElement);
+        aceEditor.setValue(solution, -1); // -1 positions cursor at the start
+        return true;
+      } catch (e) {
+        console.error('Error setting ACE editor value:', e);
+      }
+    }
+
+    // Approach 3: Use the contentEditable approach
+    if (editorElement.getAttribute('contenteditable') === 'true') {
+      console.log('DEBUG - Found contentEditable editor');
+      editorElement.textContent = solution;
+      editorElement.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    }
+    
+    // Approach 4: Try using CodeMirror if available
+    if (window.CodeMirror) {
+      console.log('DEBUG - Trying CodeMirror');
+      try {
+        // Find CodeMirror instance
+        for (const element of document.querySelectorAll('.CodeMirror')) {
+          if (element.CodeMirror) {
+            element.CodeMirror.setValue(solution);
+            return true;
+          }
+        }
+      } catch (e) {
+        console.error('Error setting CodeMirror value:', e);
+      }
+    }
+    
+    // Approach 5: Direct DOM manipulation - insert solution into the editor's child elements
+    console.log('DEBUG - Trying direct DOM manipulation');
+    
+    // For a contenteditable div
+    const editableDiv = editorElement.querySelector('[contenteditable="true"]');
+    if (editableDiv) {
+      editableDiv.textContent = solution;
+      editableDiv.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    }
+    
+    // If it's a pre tag
+    const preTag = editorElement.querySelector('pre');
+    if (preTag) {
+      preTag.textContent = solution;
+      return true;
+    }
+    
+    // Last resort: Try to inject JavaScript to set the value
+    console.log('DEBUG - Trying script injection as last resort');
+    
+    const script = document.createElement('script');
+    script.textContent = `
+      (function() {
+        try {
+          // Try to find all possible editors
+          const solution = ${JSON.stringify(solution)};
+          
+          // Try ace editor
+          if (window.ace) {
+            const aceElements = document.querySelectorAll('.ace_editor');
+            for (const element of aceElements) {
+              try {
+                const editor = ace.edit(element);
+                editor.setValue(solution, -1);
+                console.log('Script set ace editor value');
+              } catch (e) {
+                console.error('Error setting ace value:', e);
+              }
+            }
+          }
+          
+          // Try CodeMirror
+          if (window.CodeMirror) {
+            const cmElements = document.querySelectorAll('.CodeMirror');
+            for (const element of cmElements) {
+              try {
+                if (element.CodeMirror) {
+                  element.CodeMirror.setValue(solution);
+                  console.log('Script set CodeMirror value');
+                }
+              } catch (e) {
+                console.error('Error setting CodeMirror value:', e);
+              }
+            }
+          }
+          
+          // Try setting on plaintext divs
+          const editorDiv = document.querySelector('#editor');
+          if (editorDiv) {
+            const textareas = editorDiv.querySelectorAll('textarea');
+            for (const textarea of textareas) {
+              textarea.value = solution;
+              textarea.dispatchEvent(new Event('input', { bubbles: true }));
+              console.log('Script set textarea value');
+            }
+            
+            // Try contenteditable
+            const editables = editorDiv.querySelectorAll('[contenteditable="true"]');
+            for (const editable of editables) {
+              editable.textContent = solution;
+              editable.dispatchEvent(new Event('input', { bubbles: true }));
+              console.log('Script set contenteditable value');
+            }
+          }
+        } catch (e) {
+          console.error('Error in solution script:', e);
+        }
+      })();
+    `;
+    
+    document.head.appendChild(script);
+    script.remove();
+    
+    return true;
+  } catch (error) {
+    console.error('Error in applyAtCoderSolution:', error);
+    throw error;
+  }
+};
+    
