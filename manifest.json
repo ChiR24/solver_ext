@@ -6,8 +6,7 @@
   "permissions": [
     "activeTab",
     "scripting",
-    "storage",
-    "tabs"
+    "storage"
   ],
   "host_permissions": [
     "*://*.leetcode.com/*",
@@ -18,8 +17,7 @@
     "*://*.atcoder.jp/*",
     "*://*.spoj.com/*",
     "*://*.geeksforgeeks.org/*",
-    "*://*.interviewbit.com/*",
-    "https://*/*"
+    "*://*.interviewbit.com/*"
   ],
   "action": {
     "default_popup": "popup.html",
@@ -30,29 +28,76 @@
     }
   },
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
   "content_scripts": [
     {
       "matches": [
-        "*://*.leetcode.com/problems/*",
+        "*://*.leetcode.com/problems/*"
+      ],
+      "js": ["editor-bridges.js", "monaco-bridge.js", "utils.js", "content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
         "*://*.hackerrank.com/challenges/*",
         "*://*.hackerrank.com/contests/*",
-        "*://*.hackerrank.com/domains/*",
-        "*://*.codewars.com/kata/*",
-        "*://*.codewars.com/kumite/*",
-        "*://*.hackerearth.com/problem/*",
-        "*://*.hackerearth.com/challenges/*",
-        "*://*.codeforces.com/problemset/problem/*",
-        "*://*.atcoder.jp/contests/*/tasks/*",
-        "*://*.spoj.com/problems/*",
-        "*://*.geeksforgeeks.org/problems/*",
-        "*://*.interviewbit.com/problems/*",
-        "https://*/*"
+        "*://*.hackerrank.com/domains/*"
       ],
-      "js": ["early-optimizer.js", "editor-bridges.js", "monaco-bridge.js", "utils.js", "content.js"],
-      "run_at": "document_start",
-      "all_frames": true
+      "js": ["editor-bridges.js", "monaco-bridge.js", "utils.js", "content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "*://*.codewars.com/kata/*",
+        "*://*.codewars.com/kumite/*"
+      ],
+      "js": ["editor-bridges.js", "monaco-bridge.js", "utils.js", "content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "*://*.hackerearth.com/problem/*",
+        "*://*.hackerearth.com/challenges/*"
+      ],
+      "js": ["editor-bridges.js", "monaco-bridge.js", "utils.js", "content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "*://*.codeforces.com/problemset/problem/*"
+      ],
+      "js": ["editor-bridges.js", "monaco-bridge.js", "utils.js", "content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "*://*.atcoder.jp/contests/*/tasks/*"
+      ],
+      "js": ["editor-bridges.js", "monaco-bridge.js", "utils.js", "content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "*://*.spoj.com/problems/*"
+      ],
+      "js": ["editor-bridges.js", "monaco-bridge.js", "utils.js", "content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "*://*.geeksforgeeks.org/problems/*"
+      ],
+      "js": ["editor-bridges.js", "monaco-bridge.js", "utils.js", "content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "*://*.interviewbit.com/problems/*"
+      ],
+      "js": ["editor-bridges.js", "monaco-bridge.js", "utils.js", "content.js"],
+      "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [
@@ -62,10 +107,7 @@
         "monaco-bridge.js",
         "utils.js",
         "content.js",
-        "hackerrank-direct-access.js",
-        "editor-optimized.js",
-        "hackerrank-optimizer.js",
-        "early-optimizer.js"
+        "hackerrank-direct-access.js"
       ],
       "matches": [
         "*://*.leetcode.com/*",
@@ -76,8 +118,7 @@
         "*://*.atcoder.jp/*",
         "*://*.spoj.com/*",
         "*://*.geeksforgeeks.org/*",
-        "*://*.interviewbit.com/*",
-        "https://*/*"
+        "*://*.interviewbit.com/*"
       ]
     }
   ],

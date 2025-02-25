@@ -6,14 +6,22 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 });
 
+// Simple in-memory cache for solutions
+const solutionCache = new Map();
+const CACHE_EXPIRY = 30 * 60 * 1000; // 30 minutes in milliseconds
+
 // Get solution using Gemini API
 async function getSolution(problem) {
   try {
-    console.log('DEBUG - Getting solution for problem:', {
-      type: problem.type,
-      title: problem.title,
-      language: problem.language
-    });
+    // Create a cache key based on problem details
+    const cacheKey = `${problem.type}:${problem.title}:${problem.language || 'default'}`;
+    
+    // Check cache first
+    const cachedSolution = solutionCache.get(cacheKey);
+    if (cachedSolution && (Date.now() - cachedSolution.timestamp < CACHE_EXPIRY)) {
+      console.log('Using cached solution');
+      return cachedSolution.data;
+    }
     
     const apiKey = await getApiKey();
     if (!apiKey) {
@@ -21,17 +29,18 @@ async function getSolution(problem) {
     }
 
     const prompt = generatePrompt(problem);
-    console.log('DEBUG - Generated prompt structure');
-
     const response = await callGeminiApi(prompt, apiKey);
-    console.log('DEBUG - Received API response');
-
     const processedResponse = processResponse(response, problem.type);
-    console.log('DEBUG - Processed response');
-
+    
+    // Cache the result
+    solutionCache.set(cacheKey, {
+      timestamp: Date.now(),
+      data: processedResponse
+    });
+    
     return processedResponse;
   } catch (error) {
-    console.error('DEBUG - Error in getSolution:', error);
+    console.error('Error in getSolution:', error);
     return { error: error.message };
   }
 }
@@ -40,7 +49,6 @@ async function getSolution(problem) {
 async function getApiKey() {
   return new Promise((resolve) => {
     chrome.storage.local.get(['geminiApiKey'], (result) => {
-      console.log('DEBUG - API Key found:', !!result.geminiApiKey);
       resolve(result.geminiApiKey);
     });
   });
@@ -98,12 +106,10 @@ Return only the exact text of the correct answer option, nothing else.`;
   }
 }
 
-// Call Gemini API
+// Call Gemini API with optimized error handling and reduced logging
 async function callGeminiApi(prompt, apiKey) {
   try {
-    console.log('DEBUG - Calling Gemini API');
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-pro-exp-02-05:generateContent?key=${apiKey}`;
-    console.log('DEBUG - API URL:', url);
     
     const requestBody = {
       contents: [{
@@ -113,8 +119,6 @@ async function callGeminiApi(prompt, apiKey) {
       }]
     };
     
-    console.log('DEBUG - Request body:', JSON.stringify(requestBody, null, 2));
-    
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -123,59 +127,39 @@ async function callGeminiApi(prompt, apiKey) {
       body: JSON.stringify(requestBody)
     });
 
-    console.log('DEBUG - Response status:', response.status);
-    console.log('DEBUG - Response status text:', response.statusText);
-    console.log('DEBUG - Response headers:', JSON.stringify(Object.fromEntries([...response.headers]), null, 2));
-
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error('DEBUG - Raw error response:', errorText);
+      let errorMessage = `API call failed: ${response.status} - ${response.statusText}`;
       
-      let errorData;
       try {
-        errorData = JSON.parse(errorText);
+        const errorData = await response.json();
+        if (errorData.error) {
+          errorMessage += ` - ${errorData.error.message || JSON.stringify(errorData.error)}`;
+        }
       } catch (e) {
-        errorData = { rawError: errorText };
+        // If we can't parse JSON, use text instead
+        const errorText = await response.text();
+        errorMessage += ` - ${errorText.substring(0, 100)}`;
       }
       
-      console.error('DEBUG - API Error Response:', errorData);
-      console.error('DEBUG - Response status:', response.status);
-      console.error('DEBUG - Response status text:', response.statusText);
-      console.error('DEBUG - Full error data:', JSON.stringify(errorData, null, 2));
-      throw new Error(`API call failed: ${response.status} - ${response.statusText} - ${JSON.stringify(errorData)}`);
+      throw new Error(errorMessage);
     }
 
-    const responseText = await response.text();
-    console.log('DEBUG - Raw response text:', responseText);
+    const data = await response.json();
     
-    let data;
-    try {
-      data = JSON.parse(responseText);
-    } catch (e) {
-      console.error('DEBUG - JSON parse error:', e);
-      throw new Error('Failed to parse API response as JSON');
-    }
-    
-    console.log('DEBUG - Full API response:', JSON.stringify(data, null, 2));
-
     if (!data.candidates?.[0]?.content?.parts?.[0]?.text) {
-      console.error('DEBUG - Invalid API response format:', JSON.stringify(data, null, 2));
       throw new Error('Invalid response format from API');
     }
 
     return data.candidates[0].content.parts[0].text;
   } catch (error) {
-    console.error('DEBUG - API call error:', error);
-    console.error('DEBUG - Error stack:', error.stack);
-    throw new Error(`API call failed: ${error.message}`);
+    console.error('API call error:', error);
+    throw error;
   }
 }
 
 // Process API response based on problem type
 function processResponse(response, type) {
   try {
-    console.log('DEBUG - Processing response for type:', type);
-
     // For coding problems
     if (type === 'leetcode' || type === 'code' || type.match(/^(geeksforgeeks|hackerrank|codewars|hackerearth|codeforces|atcoder|spoj|interviewbit)$/)) {
       // Extract code block from response if present
@@ -197,7 +181,7 @@ function processResponse(response, type) {
 
     throw new Error('Unsupported problem type');
   } catch (error) {
-    console.error('DEBUG - Error processing response:', error);
+    console.error('Error processing response:', error);
     throw new Error(`Failed to process response: ${error.message}`);
   }
 } 
