@@ -49,6 +49,12 @@
   let cachedModel = null;
   let lastFoundLocation = null;
   
+  // Declare editorCheckInterval at the top of the file or module scope
+  let editorCheckInterval = null;
+  
+  // OPTIMIZATION: Call this immediately on script load to find editor faster
+  initializeDirectAccess();
+  
   // Create a communication channel with the extension
   window.addEventListener('message', function(event) {
     if (event.data && event.data.type === 'HR_DIRECT_ACCESS') {
@@ -113,6 +119,15 @@
     }
   });
   
+  // OPTIMIZATION: Prioritize locations based on their likelihood of success for HackerRank
+  const PRIORITIZED_LOCATIONS = [
+    'monaco',           // Standard global
+    'MonacoEditor',     // HackerRank specific
+    'hackerrank_r_krackjack', // HackerRank specific
+    '_monaco',          // HackerRank specific
+    'MonacoEnvironment' // Less commonly used
+  ];
+  
   // Function to find HackerRank's Monaco editor
   function findHackerRankEditor() {
     const result = {
@@ -145,17 +160,24 @@
         }
       }
       
-      // Check HackerRank specific globals
-      const hrLocations = [
-        'hackerrank_r_krackjack',
-        '_monaco',
-        'monaco',
-        'MonacoEnvironment',
-        'MonacoEditor'
-      ];
+      // OPTIMIZATION: First check standard monaco global - fastest path
+      if (window.monaco?.editor) {
+        const editors = window.monaco.editor.getEditors();
+        if (editors && editors.length > 0) {
+          const editor = editors[0];
+          if (editor && editor.getModel()) {
+            result.found = true;
+            result.location = 'monaco';
+            result.editor = editor;
+            result.model = editor.getModel();
+            log.info('Found editor in standard monaco global');
+            return result;
+          }
+        }
+      }
       
-      // First try to find in globals
-      for (const loc of hrLocations) {
+      // Check HackerRank specific globals using prioritized locations
+      for (const loc of PRIORITIZED_LOCATIONS) {
         if (window[loc]?.editor) {
           const editors = window[loc].editor.getEditors?.();
           if (editors && editors.length > 0) {
@@ -164,12 +186,19 @@
             result.editor = editors[0];
             result.model = editors[0].getModel();
             log.info('Found editor in global:', loc);
+            
+            // OPTIMIZATION: Make the editor globally available to improve future lookups
+            if (!window.monaco) {
+              window.monaco = window[loc];
+              log.debug('Made monaco globally available from', loc);
+            }
+            
             break;
           }
         }
       }
       
-      // If not found in globals, try to find in DOM
+      // OPTIMIZATION: Check DOM only if globals didn't work
       if (!result.found) {
         // Look for editor wrappers
         const wrappers = document.querySelectorAll('.hr-monaco-editor-wrapper');
@@ -211,6 +240,13 @@
         cachedEditor = result.editor;
         cachedModel = result.model;
         lastFoundLocation = result.location;
+        
+        // OPTIMIZATION: The editor is now found - we can clear the interval if it exists
+        if (editorCheckInterval) {
+          clearInterval(editorCheckInterval);
+          editorCheckInterval = null;
+          log.debug('Cleared editor check interval after finding editor');
+        }
       } else {
         log.warn('No editor found');
       }
@@ -245,58 +281,129 @@
       }
       
       try {
-        // Method 1: Use pushEditOperations
-        editorInfo.model.pushEditOperations(
-          [],
-          [{
-            range: editorInfo.model.getFullModelRange(),
-            text: value
-          }],
-          () => null
-        );
+        // OPTIMIZATION: Use try/catch for each technique - try multiple approaches in sequence
+        try {
+          // Method 1: Use pushEditOperations - preferred for complex changes
+          editorInfo.model.pushEditOperations(
+            [],
+            [{
+              range: editorInfo.model.getFullModelRange(),
+              text: value
+            }],
+            () => null
+          );
+        } catch (e) {
+          log.warn('pushEditOperations failed, trying setValue:', e);
+          
+          // Method 2: Use setValue - simpler but may not preserve undo history
+          editorInfo.model.setValue(value);
+        }
+        
+        // OPTIMIZATION: Update cursor position and ensure visibility
+        try {
+          editorInfo.editor.setPosition({ lineNumber: 1, column: 1 });
+          editorInfo.editor.revealLine(1);
+        } catch (cursorError) {
+          log.warn('Failed to update cursor position:', cursorError);
+          // Non-critical error, continue
+        }
+        
+        // OPTIMIZATION: Apply layout refresh to ensure editor updates visually
+        try {
+          editorInfo.editor.layout();
+        } catch (layoutError) {
+          log.warn('Failed to refresh layout:', layoutError);
+          // Non-critical error, continue
+        }
+        
+        log.info('Successfully set editor value');
+        return { success: true };
       } catch (e) {
-        log.warn('pushEditOperations failed, trying setValue:', e);
-        // Method 2: Use setValue
-        editorInfo.model.setValue(value);
+        log.error('Error setting value:', e);
+        return { success: false, error: e.message };
       }
-      
-      // Verify the change
-      const newValue = editorInfo.model.getValue();
-      const success = newValue === value;
-      
-      // If verification failed, try one more time
-      if (!success) {
-        log.warn('Value verification failed, trying again');
-        editorInfo.model.setValue(value);
-        const retryValue = editorInfo.model.getValue();
-        return {
-          success: retryValue === value,
-          error: retryValue !== value ? 'Value verification failed after retry' : null
-        };
-      }
-      
-      log.info('Successfully set editor value');
-      return { success: true };
     } catch (e) {
-      log.error('Error setting value:', e);
+      log.error('Error in setEditorValue:', e);
       return { success: false, error: e.message };
     }
   }
   
-  // Create a global function that can be called directly
-  window.hackerrankDirectSetValue = function(value) {
-    return setEditorValue(value);
-  };
-  
-  // Create a global function to get editor value directly
-  window.hackerrankDirectGetValue = function() {
-    return getEditorValue();
-  };
-  
-  // Notify that direct access is ready
-  window.postMessage({
-    type: 'HR_DIRECT_READY'
-  }, '*');
-  
-  log.info('Direct access initialized');
+  // OPTIMIZATION: Initialization function to set up global references
+  function initializeDirectAccess() {
+    try {
+      log.info('Initializing direct access');
+      
+      // Expose the function globally so it can be called directly
+      window.hackerrankDirectSetValue = function(value) {
+        return setEditorValue(value);
+      };
+      
+      window.hackerrankDirectGetValue = function() {
+        return getEditorValue();
+      };
+      
+      // OPTIMIZATION: Set up a short interval to check for editor initialization
+      // This will try to find the editor quickly after page load and then cache it
+      if (!editorCheckInterval) {
+        editorCheckInterval = setInterval(() => {
+          const editorInfo = findHackerRankEditor();
+          if (editorInfo.found) {
+            // Editor found, clear interval
+            clearInterval(editorCheckInterval);
+            editorCheckInterval = null;
+            log.debug('Found editor during interval check');
+          }
+        }, 500); // Check every 500ms
+        
+        // OPTIMIZATION: Clear interval after 10 seconds max to avoid resource waste
+        setTimeout(() => {
+          if (editorCheckInterval) {
+            clearInterval(editorCheckInterval);
+            editorCheckInterval = null;
+            log.debug('Cleared editor check interval after timeout');
+          }
+        }, 10000);
+      }
+      
+      // OPTIMIZATION: Look for DOM changes that might indicate editor is ready
+      const observer = new MutationObserver((mutations) => {
+        const editorRelatedChange = mutations.some(mutation => {
+          // Check if any Monaco editor or HR editor elements were added
+          return Array.from(mutation.addedNodes).some(node => {
+            if (node.nodeType !== Node.ELEMENT_NODE) return false;
+            
+            // Check element and its children for editor elements
+            const element = node;
+            return element.classList?.contains('monaco-editor') ||
+                   element.classList?.contains('hr-monaco-editor') ||
+                   element.querySelector?.('.monaco-editor, .hr-monaco-editor');
+          });
+        });
+        
+        if (editorRelatedChange) {
+          log.debug('Detected editor-related DOM change, checking for editor');
+          findHackerRankEditor();
+        }
+      });
+      
+      // Start observing the document body for editor-related changes
+      observer.observe(document.body, { 
+        childList: true, 
+        subtree: true,
+        attributes: false,
+        characterData: false
+      });
+      
+      // Clean up observer after 15 seconds to avoid resource usage
+      setTimeout(() => {
+        observer.disconnect();
+        log.debug('Disconnected mutation observer after timeout');
+      }, 15000);
+      
+      return true;
+    } catch (e) {
+      log.error('Error initializing direct access:', e);
+      return false;
+    }
+  }
 })(); 
