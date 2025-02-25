@@ -1096,207 +1096,102 @@
   window.HackerRankBridge = HackerRankBridge;
 
   // GeeksForGeeks Editor Bridge
-  const GeeksForGeeksEditor = {
-    getEditor: () => {
+  const initGeeksForGeeksEditorBridge = () => {
+    console.log('Initializing GeeksForGeeks editor bridge');
+    
+    // Find the Ace editor element
+    const editorElement = document.querySelector('.ace_editor');
+    if (editorElement) {
+      console.log('Found Ace editor element, injecting helper');
+      
+      // Instead of injecting a script, we'll directly access the Ace editor
       try {
-        // Log current DOM state
-        console.log('DEBUG - GeeksForGeeks editor state:', {
-          aceEditor: !!document.querySelector('.ace_editor'),
-          hasAceGlobal: !!window.ace,
-          editorContainer: !!document.querySelector('#editor'),
-          problemContainer: !!document.querySelector('.problems_problem_content__Xm_eO'),
-          codeEditor: !!document.querySelector('[data-cy="code-editor"]')
-        });
-
-        // Try to get Ace editor instance
-        const editorElement = document.querySelector('.ace_editor');
-        if (!editorElement) {
-          console.log('No Ace editor element found');
-          return null;
-        }
-
-        // Try to get global ace instance
-        if (!window.ace?.edit) {
-          console.log('No global ace instance found');
-          return null;
-        }
-
-        try {
-          const editor = window.ace.edit(editorElement);
-          console.log('Found Ace editor instance');
+        // Check if ace is available in the window object
+        if (window.ace && typeof window.ace.edit === 'function') {
+          const aceEditor = window.ace.edit(editorElement);
           
-          return {
-            type: 'ace',
-            element: editorElement,
-            getValue: () => {
-              try {
-                return editor.getValue() || '';
-              } catch (e) {
-                console.error('Error getting editor value:', e);
-                return '';
-              }
-            },
-            setValue: (value) => {
-              try {
-                // Find the Solution class in the new code
-                const solutionMatch = value.match(/class\s+Solution[^{]*{([^}]*)}/);
-                if (!solutionMatch) {
-                  console.error('No Solution class found in new code');
-                  return false;
-                }
-
-                // Get the current editor content
-                const currentCode = editor.getValue();
-                
-                // Find the Solution class in the current code
-                const currentSolutionMatch = currentCode.match(/class\s+Solution[^{]*{([^}]*)}/);
-                if (!currentSolutionMatch) {
-                  console.error('No Solution class found in current code');
-                  return false;
-                }
-
-                // Replace just the Solution class implementation
-                const newCode = currentCode.replace(
-                  /class\s+Solution[^{]*{[^}]*}/,
-                  `class Solution:\n${solutionMatch[1]}\n}`
-                );
-
-                editor.setValue(newCode, -1);
-                editor.clearSelection();
-                editor.moveCursorTo(0, 0);
-                editor.focus();
+          // Store the editor instance for later use
+          window.smartSolverAceEditor = aceEditor;
+          
+          console.log('Successfully accessed Ace editor instance');
+          
+          // Add a helper method to the window object that our extension can call
+          window.setEditorValue = (value) => {
+            try {
+              if (window.smartSolverAceEditor) {
+                window.smartSolverAceEditor.setValue(value);
+                window.smartSolverAceEditor.clearSelection();
                 return true;
-              } catch (e) {
-                console.error('Error setting editor value:', e);
-                return false;
               }
+              return false;
+            } catch (error) {
+              console.error('Error setting editor value:', error);
+              return false;
             }
           };
-        } catch (e) {
-          console.error('Error creating Ace editor instance:', e);
-          return null;
+        } else {
+          console.log('Ace editor not found in window object');
         }
-      } catch (e) {
-        console.error('Error in GeeksForGeeks editor bridge:', e);
-        return null;
+      } catch (error) {
+        console.error('Error initializing GeeksForGeeks editor bridge:', error);
       }
-    },
+    } else {
+      console.log('No Ace editor element found');
+      
+      // Try to find textarea as fallback
+      const textarea = document.querySelector('textarea[data-role="editor"], textarea#code, textarea.inputArea');
+      if (textarea) {
+        console.log('Found textarea editor element');
+        
+        // Add a helper method for the textarea
+        window.setEditorValue = (value) => {
+          try {
+            textarea.value = value;
+            textarea.dispatchEvent(new Event('input', { bubbles: true }));
+            textarea.dispatchEvent(new Event('change', { bubbles: true }));
+            return true;
+          } catch (error) {
+            console.error('Error setting textarea value:', error);
+            return false;
+          }
+        };
+      }
+    }
+  };
 
-    initialize: () => {
-      console.log('Initializing GeeksForGeeks editor bridge');
-
-      // Function to inject Ace editor helper
-      const injectAceHelper = () => {
-        try {
-          const script = document.createElement('script');
-          script.textContent = `
-            window.addEventListener('message', (event) => {
-              if (event.data?.type !== 'GFG_EDITOR') return;
-              
-              const { action, value } = event.data;
-              try {
-                const editorElement = document.querySelector('.ace_editor');
-                if (!editorElement || !window.ace?.edit) {
-                  throw new Error('Editor not found');
-                }
-
-                const editor = window.ace.edit(editorElement);
-                
-                if (action === 'getValue') {
-                  window.postMessage({
-                    type: 'GFG_EDITOR_RESPONSE',
-                    action: 'getValue',
-                    value: editor.getValue()
-                  }, '*');
-                } else if (action === 'setValue') {
-                  // Find the Solution class in the new code
-                  const solutionMatch = value.match(/class\\s+Solution[^{]*{([^}]*)}/);
-                  if (!solutionMatch) {
-                    throw new Error('No Solution class found in new code');
-                  }
-
-                  // Get the current editor content
-                  const currentCode = editor.getValue();
-                  
-                  // Find the Solution class in the current code
-                  const currentSolutionMatch = currentCode.match(/class\\s+Solution[^{]*{([^}]*)}/);
-                  if (!currentSolutionMatch) {
-                    throw new Error('No Solution class found in current code');
-                  }
-
-                  // Replace just the Solution class implementation
-                  const newCode = currentCode.replace(
-                    /class\\s+Solution[^{]*{[^}]*}/,
-                    \`class Solution:\\n\${solutionMatch[1]}\\n}\`
-                  );
-
-                  editor.setValue(newCode, -1);
-                  editor.clearSelection();
-                  editor.moveCursorTo(0, 0);
-                  editor.focus();
-                  
-                  window.postMessage({
-                    type: 'GFG_EDITOR_RESPONSE',
-                    action: 'SET_VALUE_RESULT',
-                    payload: { success: true }
-                  }, '*');
-                }
-              } catch (e) {
-                console.error('Error in GFG editor helper:', e);
-                window.postMessage({
-                  type: 'GFG_EDITOR_RESPONSE',
-                  action,
-                  error: e.message
-                }, '*');
+  // Replace the injectAceHelper function with a CSP-friendly version
+  const injectAceHelper = () => {
+    try {
+      // Instead of injecting a script, we'll directly access the Ace editor
+      if (window.ace && typeof window.ace.edit === 'function') {
+        const editorElements = document.querySelectorAll('.ace_editor');
+        if (editorElements.length > 0) {
+          for (const editorElement of editorElements) {
+            try {
+              const aceEditor = window.ace.edit(editorElement);
+              if (aceEditor) {
+                console.log('Successfully accessed Ace editor instance');
+                return true;
               }
-            });
-
-            // Notify that helper is ready
-            window.postMessage({
-              type: 'GFG_EDITOR_RESPONSE',
-              action: 'HELPER_READY'
-            }, '*');
-          `;
-          document.body.appendChild(script);
-          return true;
-        } catch (e) {
-          console.error('Error injecting GFG editor helper:', e);
-          return false;
-        }
-      };
-
-      // Set up mutation observer to watch for editor initialization
-      const observer = new MutationObserver((mutations, obs) => {
-        const editorElement = document.querySelector('.ace_editor');
-        if (editorElement) {
-          console.log('Found Ace editor element, injecting helper');
-          if (injectAceHelper()) {
-            obs.disconnect();
+            } catch (error) {
+              console.error('Error accessing Ace editor:', error);
+            }
           }
         }
-      });
-
-      // Start observing
-      observer.observe(document.documentElement, {
-        childList: true,
-        subtree: true,
-        attributes: true,
-        attributeFilter: ['class']
-      });
-
-      // Check if editor already exists
-      const editorElement = document.querySelector('.ace_editor');
-      if (editorElement) {
-        console.log('Found existing Ace editor element');
-        injectAceHelper();
       }
+      
+      console.log('Could not access Ace editor directly');
+      return false;
+    } catch (error) {
+      console.error('Error in injectAceHelper:', error);
+      return false;
     }
   };
 
   // Initialize GeeksForGeeks bridge if on GeeksForGeeks
   if (window.location.hostname.includes('geeksforgeeks.org')) {
     console.log('Initializing GeeksForGeeks bridge');
-    GeeksForGeeksEditor.initialize();
-    window.GeeksForGeeksEditor = GeeksForGeeksEditor;
+    initGeeksForGeeksEditorBridge();
+    window.GeeksForGeeksEditor = { getEditor: initGeeksForGeeksEditorBridge };
   }
 })(); 
