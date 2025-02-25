@@ -163,6 +163,20 @@ async function handleSolveRequest() {
         }
       }
       
+      // Ensure direct access is initialized
+      if (window.HackerRankBridge && !window.HackerRankBridge.directAccessInitialized) {
+        console.log('DEBUG - Initializing HackerRank direct access');
+        window.HackerRankBridge.initializeDirectAccess();
+        // Wait a bit for initialization
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      
+      // Try to find Monaco in the page directly
+      const monacoEditors = document.querySelectorAll('.monaco-editor');
+      if (monacoEditors.length > 0) {
+        console.log('DEBUG - Found Monaco editors in the page:', monacoEditors.length);
+      }
+      
       // Check if Monaco is available in HackerRank's custom locations
       const hrLocations = [
         'hackerrank_r_krackjack',
@@ -175,7 +189,7 @@ async function handleSolveRequest() {
       for (const loc of hrLocations) {
         const value = window[loc];
         if (value?.editor) {
-          console.log(`Found Monaco in ${loc}, making it globally available`);
+          console.log(`DEBUG - Found Monaco in ${loc}, making it globally available`);
           window.monaco = window.monaco || value;
           break;
         }
@@ -228,7 +242,25 @@ async function handleSolveRequest() {
 
     // Apply the solution
     console.log('DEBUG - Attempting to apply solution...');
-    await applySolution(solution.answer, problemDetails.type);
+    
+    // For HackerRank, try direct DOM manipulation if the bridge fails
+    if (window.location.hostname.includes('hackerrank.com')) {
+      try {
+        // First try using the bridge
+        await applySolution(solution.answer, problemDetails.type);
+      } catch (e) {
+        console.log('DEBUG - Bridge failed, trying direct DOM manipulation:', e.message);
+        
+        // Try direct DOM manipulation
+        const success = await applyDirectSolution(solution.answer);
+        if (!success) {
+          throw new Error('Failed to apply solution using both bridge and direct manipulation');
+        }
+      }
+    } else {
+      // For other platforms, use the standard approach
+      await applySolution(solution.answer, problemDetails.type);
+    }
     
     console.log('DEBUG - Solution applied successfully');
     return { success: true };
@@ -267,6 +299,239 @@ async function handleSolveRequest() {
 
     throw new Error(errorMessage);
   }
+}
+
+// Direct solution application for HackerRank
+async function applyDirectSolution(solution) {
+  console.log('DEBUG - Attempting direct solution application');
+  
+  // Clean up the solution
+  let cleanSolution = solution;
+  if (solution.includes('```')) {
+    const matches = solution.match(/```(?:\w+\n)?([\s\S]*?)```/);
+    cleanSolution = matches ? matches[1].trim() : solution.trim();
+  }
+  
+  // First try using the global function if available
+  try {
+    // Check if our direct access script has been loaded and initialized
+    if (typeof window.hackerrankDirectSetValue === 'function') {
+      console.log('DEBUG - Using hackerrankDirectSetValue function');
+      const result = window.hackerrankDirectSetValue(cleanSolution);
+      if (result && result.success) {
+        console.log('DEBUG - Successfully set editor value using direct function');
+        return true;
+      }
+      console.log('DEBUG - Direct function failed:', result?.error || 'Unknown error');
+    }
+  } catch (e) {
+    console.error('DEBUG - Error using direct function:', e);
+  }
+  
+  // Try to find Monaco editor directly
+  const editorWrappers = document.querySelectorAll('.hr-monaco-editor-wrapper');
+  if (editorWrappers.length === 0) {
+    console.error('DEBUG - No editor wrappers found');
+    return false;
+  }
+  
+  console.log('DEBUG - Found editor wrappers:', editorWrappers.length);
+  
+  // Try to find Monaco editor in wrapper
+  for (const wrapper of editorWrappers) {
+    const monacoElement = wrapper.querySelector('.monaco-editor');
+    if (!monacoElement) continue;
+    
+    console.log('DEBUG - Found Monaco editor element');
+    
+    // Try to access Monaco editor
+    if (!window.monaco?.editor) {
+      console.error('DEBUG - Monaco editor not available in window');
+      
+      // Try to find Monaco in HackerRank's custom locations
+      const hrLocations = [
+        'hackerrank_r_krackjack',
+        '_monaco',
+        'monaco',
+        'MonacoEnvironment',
+        'MonacoEditor'
+      ];
+      
+      let foundMonaco = false;
+      for (const loc of hrLocations) {
+        const value = window[loc];
+        if (value?.editor) {
+          console.log(`DEBUG - Found Monaco in ${loc}, using it`);
+          foundMonaco = true;
+          
+          // Try to set value using this Monaco instance
+          try {
+            const editors = value.editor.getEditors();
+            if (editors && editors.length > 0) {
+              const editor = editors[0];
+              const model = editor.getModel();
+              if (model) {
+                try {
+                  model.pushEditOperations(
+                    [],
+                    [{
+                      range: model.getFullModelRange(),
+                      text: cleanSolution
+                    }],
+                    () => null
+                  );
+                  console.log('DEBUG - Successfully set editor value using', loc);
+                  return true;
+                } catch (e) {
+                  console.warn(`DEBUG - pushEditOperations failed for ${loc}, trying setValue:`, e);
+                  try {
+                    model.setValue(cleanSolution);
+                    console.log('DEBUG - Successfully set editor value using setValue on', loc);
+                    return true;
+                  } catch (e2) {
+                    console.error(`DEBUG - setValue also failed for ${loc}:`, e2);
+                  }
+                }
+              }
+            }
+          } catch (e) {
+            console.error(`DEBUG - Error using ${loc}:`, e);
+          }
+        }
+      }
+      
+      if (!foundMonaco) {
+        continue;
+      }
+    }
+    
+    const editors = window.monaco.editor.getEditors();
+    if (!editors || editors.length === 0) {
+      console.error('DEBUG - No editors found in monaco.editor.getEditors()');
+      continue;
+    }
+    
+    console.log('DEBUG - Found', editors.length, 'Monaco editors');
+    
+    // Try each editor
+    for (const editor of editors) {
+      try {
+        const model = editor.getModel();
+        if (!model) {
+          console.error('DEBUG - Editor has no model');
+          continue;
+        }
+        
+        console.log('DEBUG - Found editor model, setting value');
+        
+        // Try to set value
+        try {
+          // Method 1: Use pushEditOperations
+          model.pushEditOperations(
+            [],
+            [{
+              range: model.getFullModelRange(),
+              text: cleanSolution
+            }],
+            () => null
+          );
+        } catch (e) {
+          console.warn('DEBUG - pushEditOperations failed, trying setValue:', e);
+          // Method 2: Use setValue
+          model.setValue(cleanSolution);
+        }
+        
+        // Verify the change
+        const newValue = model.getValue();
+        if (newValue !== cleanSolution) {
+          console.warn('DEBUG - Value verification failed, trying again');
+          model.setValue(cleanSolution);
+        }
+        
+        console.log('DEBUG - Successfully set editor value');
+        return true;
+      } catch (e) {
+        console.error('DEBUG - Error setting editor value:', e);
+      }
+    }
+  }
+  
+  // Try one more approach - inject a script directly
+  try {
+    console.log('DEBUG - Trying direct script injection as last resort');
+    
+    // Create a script element to inject code directly
+    const script = document.createElement('script');
+    script.textContent = `
+      (function() {
+        try {
+          // Try to find Monaco editor
+          const findEditor = () => {
+            // Check HackerRank specific globals
+            const hrLocations = [
+              'hackerrank_r_krackjack',
+              '_monaco',
+              'monaco',
+              'MonacoEnvironment',
+              'MonacoEditor'
+            ];
+            
+            // Try each location
+            for (const loc of hrLocations) {
+              if (window[loc]?.editor) {
+                const editors = window[loc].editor.getEditors?.();
+                if (editors && editors.length > 0) {
+                  return { editor: editors[0], location: loc };
+                }
+              }
+            }
+            
+            // Try standard monaco
+            if (window.monaco?.editor) {
+              const editors = window.monaco.editor.getEditors();
+              if (editors && editors.length > 0) {
+                return { editor: editors[0], location: 'monaco' };
+              }
+            }
+            
+            return null;
+          };
+          
+          // Find editor and set value
+          const editorInfo = findEditor();
+          if (editorInfo) {
+            const model = editorInfo.editor.getModel();
+            if (model) {
+              // Set value
+              model.setValue(\`${cleanSolution.replace(/`/g, '\\`').replace(/\$/g, '\\$')}\`);
+              console.log('Direct script injection succeeded using ' + editorInfo.location);
+            }
+          }
+        } catch (e) {
+          console.error('Error in direct script injection:', e);
+        }
+      })();
+    `;
+    
+    // Append script to page
+    (document.head || document.documentElement).appendChild(script);
+    
+    // Remove script after execution
+    script.onload = function() {
+      this.remove();
+    };
+    
+    // Wait a bit for the script to execute
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    // We can't directly know if it succeeded, so we'll assume it might have worked
+    return true;
+  } catch (e) {
+    console.error('DEBUG - Error with direct script injection:', e);
+  }
+  
+  console.error('DEBUG - Failed to apply solution directly');
+  return false;
 }
 
 // Auto-solve feature

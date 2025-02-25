@@ -1723,6 +1723,24 @@ const waitForEditor = async () => {
       await new Promise(resolve => setTimeout(resolve, 500));
     }
 
+    // First try direct access if available
+    if (typeof window.hackerrankDirectSetValue === 'function') {
+      console.log('Using direct access function for HackerRank editor');
+      return {
+        container: document.querySelector('.hr-monaco-editor-wrapper') || document.body,
+        textarea: document.querySelector('.inputarea') || document.body,
+        setValue: async (value) => {
+          try {
+            const result = window.hackerrankDirectSetValue(value);
+            return result && result.success;
+          } catch (e) {
+            console.error('Error using direct access function:', e);
+            return false;
+          }
+        }
+      };
+    }
+
     let retryCount = 0;
     while (retryCount < maxRetries) {
       // First try to get editor through bridge
@@ -1757,75 +1775,79 @@ const waitForEditor = async () => {
         console.log('Attempting direct DOM manipulation as last resort');
         try {
           // Try to find Monaco editor directly
-          const hrLocations = [
-            'hackerrank_r_krackjack',
-            '_monaco',
-            'monaco',
-            'MonacoEnvironment',
-            'MonacoEditor'
-          ];
-          
-          // Check each location for Monaco
-          for (const loc of hrLocations) {
-            const value = window[loc];
-            if (value?.editor) {
-              console.log(`Found Monaco in ${loc}`);
-              const editors = value.editor.getEditors?.();
-              if (editors?.length > 0) {
-                const editor = editors[0];
-                const model = editor.getModel();
-                
-                if (model) {
-                  console.log('Found Monaco model, will use for direct manipulation');
-                  return {
-                    container: document.querySelector('.hr-monaco-editor-wrapper') || document.body,
-                    textarea: document.querySelector('.inputarea') || document.body,
-                    setValue: async (value) => {
-                      try {
-                        // Try multiple methods
-                        try {
-                          // Method 1: pushEditOperations
-                          model.pushEditOperations(
-                            [],
-                            [{
-                              range: model.getFullModelRange(),
-                              text: value
-                            }],
-                            () => null
-                          );
-                        } catch (e) {
-                          console.warn('pushEditOperations failed, trying setValue');
-                          // Method 2: setValue
-                          model.setValue(value);
-                        }
-                        
-                        // Verify
-                        const newValue = model.getValue();
-                        if (newValue !== value) {
-                          console.warn('Value verification failed, trying again');
-                          model.setValue(value);
-                        }
-                        
-                        return true;
-                      } catch (e) {
-                        console.error('Error in direct manipulation:', e);
-                        return false;
-                      }
-                    }
-                  };
-                }
-              }
-            }
-          }
-          
-          // Try to find editor in DOM
           const editorWrappers = document.querySelectorAll('.hr-monaco-editor-wrapper');
           if (editorWrappers.length > 0) {
             console.log('Found HR Monaco editor wrappers:', editorWrappers.length);
             
+            // Try to find Monaco editor in wrapper
             for (const wrapper of editorWrappers) {
               const monacoElement = wrapper.querySelector('.monaco-editor');
-              if (monacoElement && window.monaco?.editor) {
+              if (!monacoElement) continue;
+              
+              // Try to access Monaco editor
+              if (!window.monaco?.editor) {
+                // Try to find Monaco in HackerRank's custom locations
+                const hrLocations = [
+                  'hackerrank_r_krackjack',
+                  '_monaco',
+                  'monaco',
+                  'MonacoEnvironment',
+                  'MonacoEditor'
+                ];
+                
+                for (const loc of hrLocations) {
+                  const value = window[loc];
+                  if (value?.editor) {
+                    console.log(`Found Monaco in ${loc}`);
+                    const editors = value.editor.getEditors();
+                    if (editors?.length > 0) {
+                      const editor = editors[0];
+                      const model = editor.getModel();
+                      
+                      if (model) {
+                        console.log('Found Monaco model, will use for direct manipulation');
+                        return {
+                          container: wrapper,
+                          textarea: monacoElement.querySelector('.inputarea') || monacoElement,
+                          setValue: async (value) => {
+                            try {
+                              // Try multiple methods
+                              try {
+                                // Method 1: pushEditOperations
+                                model.pushEditOperations(
+                                  [],
+                                  [{
+                                    range: model.getFullModelRange(),
+                                    text: value
+                                  }],
+                                  () => null
+                                );
+                              } catch (e) {
+                                console.warn('pushEditOperations failed, trying setValue');
+                                // Method 2: setValue
+                                model.setValue(value);
+                              }
+                              
+                              // Verify
+                              const newValue = model.getValue();
+                              if (newValue !== value) {
+                                console.warn('Value verification failed, trying again');
+                                model.setValue(value);
+                              }
+                              
+                              return true;
+                            } catch (e) {
+                              console.error('Error in direct manipulation:', e);
+                              return false;
+                            }
+                          }
+                        };
+                      }
+                    }
+                  }
+                }
+              } else {
+                // Use standard monaco
                 const editors = window.monaco.editor.getEditors();
                 if (editors?.length > 0) {
                   const editor = editors[0];
@@ -1851,6 +1873,86 @@ const waitForEditor = async () => {
               }
             }
           }
+          
+          // Try one more approach - inject a script directly
+          console.log('Trying direct script injection');
+          return {
+            container: document.body,
+            textarea: document.body,
+            setValue: async (value) => {
+              try {
+                // Create a script element to inject code directly
+                const script = document.createElement('script');
+                script.textContent = `
+                  (function() {
+                    try {
+                      // Try to find Monaco editor
+                      const findEditor = () => {
+                        // Check HackerRank specific globals
+                        const hrLocations = [
+                          'hackerrank_r_krackjack',
+                          '_monaco',
+                          'monaco',
+                          'MonacoEnvironment',
+                          'MonacoEditor'
+                        ];
+                        
+                        // Try each location
+                        for (const loc of hrLocations) {
+                          if (window[loc]?.editor) {
+                            const editors = window[loc].editor.getEditors?.();
+                            if (editors && editors.length > 0) {
+                              return { editor: editors[0], location: loc };
+                            }
+                          }
+                        }
+                        
+                        // Try standard monaco
+                        if (window.monaco?.editor) {
+                          const editors = window.monaco.editor.getEditors();
+                          if (editors && editors.length > 0) {
+                            return { editor: editors[0], location: 'monaco' };
+                          }
+                        }
+                        
+                        return null;
+                      };
+                      
+                      // Find editor and set value
+                      const editorInfo = findEditor();
+                      if (editorInfo) {
+                        const model = editorInfo.editor.getModel();
+                        if (model) {
+                          // Set value
+                          model.setValue(\`${value.replace(/`/g, '\\`').replace(/\$/g, '\\$')}\`);
+                          console.log('Direct script injection succeeded using ' + editorInfo.location);
+                        }
+                      }
+                    } catch (e) {
+                      console.error('Error in direct script injection:', e);
+                    }
+                  })();
+                `;
+                
+                // Append script to page
+                (document.head || document.documentElement).appendChild(script);
+                
+                // Remove script after execution
+                script.onload = function() {
+                  this.remove();
+                };
+                
+                // Wait a bit for the script to execute
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
+                // We can't directly know if it succeeded, so we'll assume it might have worked
+                return true;
+              } catch (e) {
+                console.error('Error with direct script injection:', e);
+                return false;
+              }
+            }
+          };
         } catch (e) {
           console.error('Error in direct DOM manipulation:', e);
         }

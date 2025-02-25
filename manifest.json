@@ -61,7 +61,8 @@
         "editor-bridges.js",
         "monaco-bridge.js",
         "utils.js",
-        "content.js"
+        "content.js",
+        "hackerrank-direct-access.js"
       ],
       "matches": [
         "*://*.leetcode.com/*",
