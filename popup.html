@@ -19,6 +19,28 @@
       <input type="password" id="apiKey" placeholder="Enter your API key">
       <button id="saveApiKey">Save</button>
     </div>
+    
+    <div class="shortcut-settings">
+      <h3>Keyboard Shortcut</h3>
+      <div class="shortcut-display">
+        <span>Current shortcut: </span>
+        <span id="currentShortcut">Ctrl+Alt+S</span>
+        <button id="changeShortcut">Change</button>
+      </div>
+      <div id="shortcutEditor" style="display: none;">
+        <div class="shortcut-options">
+          <label><input type="checkbox" id="shortcutCtrl" checked> Ctrl</label>
+          <label><input type="checkbox" id="shortcutAlt" checked> Alt</label>
+          <label><input type="checkbox" id="shortcutShift"> Shift</label>
+          <input type="text" id="shortcutKey" maxlength="1" placeholder="Key" value="S">
+        </div>
+        <div class="shortcut-actions">
+          <button id="saveShortcut">Save</button>
+          <button id="cancelShortcut">Cancel</button>
+        </div>
+      </div>
+      <p class="shortcut-info">Press this shortcut on any supported coding page to solve the problem instantly.</p>
+    </div>
   </div>
   <script src="popup.js"></script>
 </body>

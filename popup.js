@@ -5,14 +5,54 @@ document.addEventListener('DOMContentLoaded', () => {
   const saveApiKeyButton = document.getElementById('saveApiKey');
   const statusSpan = document.getElementById('status');
   
-  // Load saved API key
-  chrome.storage.local.get(['geminiApiKey', 'autoSolve'], (result) => {
+  // Shortcut elements
+  const currentShortcutSpan = document.getElementById('currentShortcut');
+  const changeShortcutButton = document.getElementById('changeShortcut');
+  const shortcutEditor = document.getElementById('shortcutEditor');
+  const shortcutCtrlCheckbox = document.getElementById('shortcutCtrl');
+  const shortcutAltCheckbox = document.getElementById('shortcutAlt');
+  const shortcutShiftCheckbox = document.getElementById('shortcutShift');
+  const shortcutKeyInput = document.getElementById('shortcutKey');
+  const saveShortcutButton = document.getElementById('saveShortcut');
+  const cancelShortcutButton = document.getElementById('cancelShortcut');
+  
+  // Default shortcut configuration
+  const DEFAULT_SHORTCUT = {
+    ctrlKey: true,
+    altKey: true,
+    shiftKey: false,
+    key: 's',
+    code: 'KeyS'
+  };
+  
+  // Function to format shortcut for display
+  function formatShortcut(shortcut) {
+    const parts = [];
+    if (shortcut.ctrlKey) parts.push('Ctrl');
+    if (shortcut.altKey) parts.push('Alt');
+    if (shortcut.shiftKey) parts.push('Shift');
+    parts.push(shortcut.key.toUpperCase());
+    return parts.join('+');
+  }
+  
+  // Load saved settings
+  chrome.storage.local.get(['geminiApiKey', 'autoSolve', 'keyboardShortcut'], (result) => {
     if (result.geminiApiKey) {
       apiKeyInput.value = result.geminiApiKey;
     }
     if (result.autoSolve) {
       toggleAutoButton.textContent = 'Auto-Solve: On';
     }
+    
+    // Display current shortcut
+    const shortcut = result.keyboardShortcut || DEFAULT_SHORTCUT;
+    currentShortcutSpan.textContent = formatShortcut(shortcut);
+    
+    // Pre-fill shortcut editor
+    shortcutCtrlCheckbox.checked = shortcut.ctrlKey;
+    shortcutAltCheckbox.checked = shortcut.altKey;
+    shortcutShiftCheckbox.checked = shortcut.shiftKey;
+    shortcutKeyInput.value = shortcut.key.toUpperCase();
   });
 
   // Save API key
@@ -39,6 +79,85 @@ document.addEventListener('DOMContentLoaded', () => {
       if (newState) {
         injectContentScript();
       }
+    });
+  });
+  
+  // Keyboard shortcut editor visibility toggle
+  changeShortcutButton.addEventListener('click', () => {
+    shortcutEditor.style.display = 'block';
+    changeShortcutButton.style.display = 'none';
+  });
+  
+  // Cancel shortcut editing
+  cancelShortcutButton.addEventListener('click', () => {
+    shortcutEditor.style.display = 'none';
+    changeShortcutButton.style.display = 'inline-block';
+  });
+  
+  // Shortcut key input validation - only allow a single character
+  shortcutKeyInput.addEventListener('input', (e) => {
+    if (e.target.value.length > 1) {
+      e.target.value = e.target.value.charAt(0).toUpperCase();
+    } else {
+      e.target.value = e.target.value.toUpperCase();
+    }
+  });
+  
+  // Save keyboard shortcut
+  saveShortcutButton.addEventListener('click', () => {
+    const key = shortcutKeyInput.value.toLowerCase();
+    if (!key) {
+      statusSpan.textContent = 'Error: Please enter a key';
+      setTimeout(() => {
+        statusSpan.textContent = 'Ready';
+      }, 2000);
+      return;
+    }
+    
+    // Avoid dangerous shortcuts
+    if (
+      (shortcutCtrlCheckbox.checked && !shortcutAltCheckbox.checked && !shortcutShiftCheckbox.checked && ['w', 'r', 't', 'n', 'q'].includes(key)) ||
+      (shortcutCtrlCheckbox.checked && shortcutShiftCheckbox.checked && ['w', 't', 'q'].includes(key))
+    ) {
+      statusSpan.textContent = 'Error: This shortcut may conflict with browser functions';
+      setTimeout(() => {
+        statusSpan.textContent = 'Ready';
+      }, 3000);
+      return;
+    }
+    
+    // Get keycode from key
+    let code = `Key${key.toUpperCase()}`;
+    if (key.length === 1 && key >= '0' && key <= '9') {
+      code = `Digit${key}`;
+    }
+    
+    const newShortcut = {
+      ctrlKey: shortcutCtrlCheckbox.checked,
+      altKey: shortcutAltCheckbox.checked,
+      shiftKey: shortcutShiftCheckbox.checked,
+      key: key,
+      code: code
+    };
+    
+    // Require at least one modifier key
+    if (!newShortcut.ctrlKey && !newShortcut.altKey && !newShortcut.shiftKey) {
+      statusSpan.textContent = 'Error: Please use at least one modifier key (Ctrl, Alt, Shift)';
+      setTimeout(() => {
+        statusSpan.textContent = 'Ready';
+      }, 3000);
+      return;
+    }
+    
+    // Save new shortcut
+    chrome.storage.local.set({ keyboardShortcut: newShortcut }, () => {
+      currentShortcutSpan.textContent = formatShortcut(newShortcut);
+      shortcutEditor.style.display = 'none';
+      changeShortcutButton.style.display = 'inline-block';
+      statusSpan.textContent = 'Shortcut saved!';
+      setTimeout(() => {
+        statusSpan.textContent = 'Ready';
+      }, 2000);
     });
   });
 

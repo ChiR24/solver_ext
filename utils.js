@@ -1737,6 +1737,48 @@ const waitForEditor = async () => {
             console.error('Error using direct access function:', e);
             return false;
           }
+        },
+        getValue: async () => {
+          try {
+            // Try to use a direct get function if available
+            if (typeof window.hackerrankDirectGetValue === 'function') {
+              return window.hackerrankDirectGetValue() || '';
+            }
+            
+            // Fall back to message-based access
+            return new Promise((resolve, reject) => {
+              const requestId = Date.now().toString();
+              const timeout = setTimeout(() => reject(new Error('Get value timeout')), 5000);
+              
+              const handler = (event) => {
+                if (event.source !== window) return;
+                if (!event.data || event.data.type !== 'HR_DIRECT_RESPONSE') return;
+                if (event.data.requestId !== requestId) return;
+                if (event.data.action !== 'GET_VALUE') return;
+                
+                window.removeEventListener('message', handler);
+                clearTimeout(timeout);
+                
+                if (event.data.success) {
+                  resolve(event.data.payload.value || '');
+                } else {
+                  reject(new Error(event.data.error || 'Failed to get value'));
+                }
+              };
+              
+              window.addEventListener('message', handler);
+              
+              // Send message to get value
+              window.postMessage({
+                type: 'HR_DIRECT_ACCESS',
+                action: 'GET_VALUE',
+                requestId
+              }, '*');
+            });
+          } catch (e) {
+            console.error('Error getting editor value:', e);
+            return '';
+          }
         }
       };
     }
@@ -1765,6 +1807,17 @@ const waitForEditor = async () => {
             } catch (e) {
               console.error('Error setting editor value:', e);
               return false;
+            }
+          },
+          getValue: async () => {
+            try {
+              if (typeof editor.getValue === 'function') {
+                return await editor.getValue() || '';
+              }
+              return '';
+            } catch (e) {
+              console.error('Error getting editor value:', e);
+              return '';
             }
           }
         };
@@ -1994,6 +2047,18 @@ const waitForEditor = async () => {
                   console.error('Error setting editor value:', e);
                   return false;
                 }
+              },
+              getValue: async () => {
+                try {
+                  const model = editor.getModel();
+                  if (model) {
+                    return model.getValue() || '';
+                  }
+                  return '';
+                } catch (e) {
+                  console.error('Error getting editor value:', e);
+                  return '';
+                }
               }
             };
           }
@@ -2079,6 +2144,28 @@ const waitForEditor = async () => {
           type: 'EDITOR_BRIDGE',
           action: 'SET_VALUE',
           payload: value
+        }, '*');
+      });
+    },
+    getValue: async () => {
+      return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('Get value timeout')), 5000);
+        
+        const handler = (event) => {
+          if (event.source !== window) return;
+          if (!event.data || event.data.type !== 'EDITOR_BRIDGE') return;
+          if (event.data.action !== 'GET_VALUE_RESULT') return;
+          
+          window.removeEventListener('message', handler);
+          clearTimeout(timeout);
+          resolve(event.data.payload.value || '');
+        };
+        
+        window.addEventListener('message', handler);
+        
+        window.postMessage({
+          type: 'EDITOR_BRIDGE',
+          action: 'GET_VALUE',
         }, '*');
       });
     }
@@ -2174,6 +2261,25 @@ const applyCodeSolution = async (solution) => {
     let retryCount = 0;
     let lastError = null;
 
+    // Determine platform type
+    const hostname = window.location.hostname;
+    const isGeeksForGeeks = hostname.includes('geeksforgeeks.org');
+    const isHackerRank = hostname.includes('hackerrank.com');
+    const isLeetCode = hostname.includes('leetcode.com');
+
+    // For tracking if the solution contains a solution class/function
+    let hasSolutionClass = false;
+    let solutionClassContent = '';
+    
+    // Extract solution class/method if present
+    if (cleanSolution.includes('class Solution')) {
+      hasSolutionClass = true;
+      const match = cleanSolution.match(/class\s+Solution[^{]*{([^}]*)}/);
+      if (match) {
+        solutionClassContent = match[1];
+      }
+    }
+
     while (retryCount < maxRetries) {
       try {
         // Wait for editor with a timeout
@@ -2182,9 +2288,9 @@ const applyCodeSolution = async (solution) => {
           setTimeout(() => reject(new Error('Editor wait timeout')), 10000)
         );
         
-        const { textarea, setValue } = await Promise.race([editorPromise, timeoutPromise]);
+        const { textarea, setValue, getValue } = await Promise.race([editorPromise, timeoutPromise]);
 
-        // Focus and prepare
+        // Focus the editor
         if (textarea) {
           try {
             textarea.focus();
@@ -2193,12 +2299,78 @@ const applyCodeSolution = async (solution) => {
           }
         }
 
-        // Set the value through the bridge
+        // For GeeksForGeeks and other platforms with templates
+        if (isGeeksForGeeks || isLeetCode) {
+          try {
+            // Get current code from editor
+            const currentCode = typeof getValue === 'function' ? await getValue() : '';
+            
+            if (currentCode && hasSolutionClass) {
+              console.log('Template-aware solution application');
+              
+              // Find the Solution class in the current code
+              const currentSolutionMatch = currentCode.match(/class\s+Solution[^{]*{([^}]*)}/);
+              if (currentSolutionMatch) {
+                // Only replace the Solution class implementation
+                let newCode;
+                
+                // Check if the template uses a different format (e.g., Python's colon syntax)
+                if (currentCode.includes('class Solution:')) {
+                  newCode = currentCode.replace(
+                    /class\s+Solution\s*:([^#]*)(?:#|$)/,
+                    `class Solution:${solutionClassContent}\n`
+                  );
+                } else {
+                  newCode = currentCode.replace(
+                    /class\s+Solution[^{]*{[^}]*}/,
+                    `class Solution${currentSolutionMatch[0].split('{')[0].split('class Solution')[1]}{${solutionClassContent}}`
+                  );
+                }
+                
+                // Apply the modified code
+                const success = await setValue(newCode);
+                if (success) {
+                  console.log('Successfully applied template-aware solution');
+                  return true;
+                }
+              }
+              
+              // For GFG driver code format
+              const driverCodePattern = /\/\/\{\s*Driver\s+Code\s+Starts[\s\S]*?\/\/\s*\}\s*Driver\s+Code\s+Ends/i;
+              if (driverCodePattern.test(currentCode)) {
+                // Extract driver code sections
+                const match = currentCode.match(/([\s\S]*class\s+Solution[^{]*{)([^}]*)(}[\s\S]*)/);
+                if (match) {
+                  const [fullMatch, prefix, solutionPlaceholder, suffix] = match;
+                  
+                  // Extract the solution part from cleanSolution
+                  const solutionMatch = cleanSolution.match(/class\s+Solution[^{]*{([^}]*)}/);
+                  const solutionContent = solutionMatch ? solutionMatch[1] : '';
+                  
+                  // Create new code with solution inserted between prefix and suffix
+                  const newCode = `${prefix}${solutionContent}${suffix}`;
+                  
+                  // Apply the modified code
+                  const success = await setValue(newCode);
+                  if (success) {
+                    console.log('Successfully applied solution with Driver Code format');
+                    return true;
+                  }
+                }
+              }
+            }
+          } catch (e) {
+            console.warn('Template-aware application failed:', e);
+            // Fall back to normal application if template awareness fails
+          }
+        }
+
+        // Standard approach (fallback)
         console.log(`Attempting to set editor value (attempt ${retryCount + 1}/${maxRetries})`);
         const success = await setValue(cleanSolution);
         
         if (success) {
-          console.log('Successfully set editor value');
+          console.log('Successfully set editor value using standard approach');
           
           // Trigger necessary events if textarea exists
           if (textarea && textarea.dispatchEvent) {
@@ -2258,7 +2430,7 @@ const applyCodeSolution = async (solution) => {
     }
 
     // Special handling for HackerRank as a last resort
-    if (window.location.hostname.includes('hackerrank.com')) {
+    if (isHackerRank) {
       console.log('Attempting direct Monaco manipulation as last resort');
       
       try {

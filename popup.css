@@ -69,4 +69,73 @@ input {
 
 #saveApiKey:hover {
   background-color: #219a52;
+}
+
+/* Add styles for the keyboard shortcut section */
+.shortcut-settings {
+  margin-top: 20px;
+  border-top: 1px solid #ddd;
+  padding-top: 15px;
+}
+
+.shortcut-settings h3 {
+  margin-top: 0;
+  margin-bottom: 10px;
+  font-size: 16px;
+}
+
+.shortcut-display {
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.shortcut-display span:first-child {
+  margin-right: 5px;
+}
+
+#currentShortcut {
+  font-weight: bold;
+  background-color: #f5f5f5;
+  padding: 3px 6px;
+  border-radius: 3px;
+  border: 1px solid #ddd;
+  margin-right: 10px;
+}
+
+#changeShortcut {
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+.shortcut-options {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.shortcut-options label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+#shortcutKey {
+  width: 40px;
+  text-align: center;
+  font-weight: bold;
+  text-transform: uppercase;
+}
+
+.shortcut-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.shortcut-info {
+  font-size: 12px;
+  color: #666;
+  margin-top: 10px;
+  margin-bottom: 0;
 } 
