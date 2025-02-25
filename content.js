@@ -419,6 +419,60 @@ async function handleSolveRequest() {
       }
     }
 
+    // For GeeksForGeeks, ensure the bridge is initialized
+    if (window.location.hostname.includes('geeksforgeeks.org')) {
+      logger.info('GeeksForGeeks detected, checking editor bridge');
+
+      try {
+        // Check if bridge script is already loaded
+        if (typeof window.setEditorValue !== 'function') {
+          logger.debug('GeeksForGeeks bridge not initialized, loading script');
+
+          // Load the bridge script
+          const script = document.createElement('script');
+          script.src = chrome.runtime.getURL('geeksforgeeks-bridge.js');
+          script.type = 'text/javascript';
+          document.head.appendChild(script);
+
+          // Wait for script to load
+          await new Promise(resolve => {
+            script.onload = resolve;
+            // Timeout after 2 seconds
+            setTimeout(resolve, 2000);
+          });
+
+          logger.debug('GeeksForGeeks bridge script loaded');
+        }
+
+        // Initialize the bridge
+        window.postMessage({
+          type: 'GEEKSFORGEEKS_BRIDGE',
+          action: 'INITIALIZE'
+        }, '*');
+
+        // Wait for bridge to initialize
+        await new Promise(resolve => {
+          const timeout = setTimeout(() => {
+            logger.warn('GeeksForGeeks bridge initialization timed out');
+            resolve();
+          }, 2000);
+
+          const listener = (event) => {
+            if (event.type === 'geeksforgeeksBridgeReady') {
+              logger.info('GeeksForGeeks bridge initialized successfully');
+              clearTimeout(timeout);
+              window.removeEventListener('geeksforgeeksBridgeReady', listener);
+              resolve();
+            }
+          };
+
+          window.addEventListener('geeksforgeeksBridgeReady', listener);
+        });
+      } catch (e) {
+        logger.error('Error initializing GeeksForGeeks bridge:', e);
+      }
+    }
+
     // Extract problem details
     logger.info('Attempting to extract problem details...');
     const problemDetails = await extractProblemDetails();
@@ -489,6 +543,58 @@ async function handleSolveRequest() {
         const success = await applyDirectSolution(solution.answer);
         if (!success) {
           throw new Error('Failed to apply solution using both bridge and direct manipulation');
+        }
+      }
+    } else if (window.location.hostname.includes('geeksforgeeks.org')) {
+      // For GeeksForGeeks, try using the bridge first
+      try {
+        logger.info('Applying solution to GeeksForGeeks editor');
+        
+        // Try using the bridge
+        await applySolution(solution.answer, problemDetails.type);
+        
+        // If that fails, try direct messaging
+        if (!window.setEditorValue) {
+          logger.warn('Bridge function not available, trying direct messaging');
+          
+          // Send message to the page script
+          window.postMessage({
+            type: 'GEEKSFORGEEKS_BRIDGE',
+            action: 'SET_VALUE',
+            value: solution.answer
+          }, '*');
+          
+          // Wait for confirmation
+          const result = await new Promise((resolve) => {
+            const timeout = setTimeout(() => {
+              logger.warn('Set value operation timed out');
+              resolve({ success: false, error: 'Timeout' });
+            }, 2000);
+            
+            const listener = (event) => {
+              if (event.type === 'editorValueSet') {
+                clearTimeout(timeout);
+                window.removeEventListener('editorValueSet', listener);
+                resolve(event.detail);
+              }
+            };
+            
+            window.addEventListener('editorValueSet', listener);
+          });
+          
+          if (!result || !result.success) {
+            throw new Error(`Failed to set editor value: ${result?.error || 'Unknown error'}`);
+          }
+          
+          logger.info('Successfully set editor value using direct messaging');
+        }
+      } catch (e) {
+        logger.warn('Bridge failed, trying universal solution:', e.message);
+        
+        // Try universal solution as a last resort
+        const success = await applyUniversalSolution(solution.answer);
+        if (!success) {
+          throw new Error('Failed to apply solution using both bridge and universal methods');
         }
       }
     } else {
