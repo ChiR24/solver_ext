@@ -711,4 +711,74 @@ chrome.storage.local.get(['autoSolve'], (result) => {
 });
 
 // Log initialization
-logger.info('Content script initialized for', window.location.href); 
+logger.info('Content script initialized for', window.location.href);
+
+// ADDED: Problem type detection function
+// This function detects the type of coding problem based on the current page
+function detectProblemType() {
+  const url = window.location.href;
+  const hostname = window.location.hostname;
+  
+  // Detect platform based on hostname
+  if (hostname.includes('leetcode.com')) {
+    return 'leetcode';
+  } else if (hostname.includes('hackerrank.com')) {
+    return 'hackerrank';
+  } else if (hostname.includes('geeksforgeeks.org')) {
+    return 'geeksforgeeks';
+  } else if (hostname.includes('atcoder.jp')) {
+    return 'atcoder';
+  } else if (hostname.includes('codechef.com')) {
+    return 'codechef';
+  } else if (hostname.includes('codeforces.com')) {
+    return 'codeforces';
+  } else if (hostname.includes('hackerearth.com')) {
+    return 'hackerearth';
+  } else if (hostname.includes('spoj.com')) {
+    return 'spoj';
+  } else if (hostname.includes('interviewbit.com')) {
+    return 'interviewbit';
+  }
+  
+  return 'unknown';
+}
+
+// ADDED: Extract problem details from the current page
+function extractProblemDetails() {
+  try {
+    const type = detectProblemType();
+    const url = window.location.href;
+    let title = '';
+    let problemId = '';
+    
+    // Extract title based on platform
+    switch (type) {
+      case 'leetcode':
+        title = document.querySelector('title')?.textContent?.replace(' - LeetCode', '') || '';
+        problemId = url.match(/problems\/([^/]+)/)?.[1] || '';
+        break;
+      case 'hackerrank':
+        title = document.querySelector('.challenge-title')?.textContent?.trim() || 
+                document.querySelector('h1.title')?.textContent?.trim() || '';
+        problemId = url.match(/challenges\/([^/]+)/)?.[1] || '';
+        break;
+      case 'geeksforgeeks':
+        title = document.querySelector('.problem-tab h1')?.textContent?.trim() || '';
+        problemId = url.match(/problems\/([^/]+)/)?.[1] || '';
+        break;
+      // Add more platforms as needed
+      default:
+        title = document.title || '';
+    }
+    
+    return {
+      type,
+      title,
+      problemId,
+      url
+    };
+  } catch (error) {
+    logger.error('Error extracting problem details:', error);
+    return null;
+  }
+} 
