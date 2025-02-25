@@ -89,7 +89,7 @@
       "matches": [
         "*://*.geeksforgeeks.org/problems/*"
       ],
-      "js": ["editor-bridges.js", "monaco-bridge.js", "utils.js", "content.js"],
+      "js": ["geeksforgeeks-bridge.js", "editor-bridges.js", "monaco-bridge.js", "utils.js", "content.js"],
       "run_at": "document_idle"
     },
     {
@@ -107,7 +107,8 @@
         "monaco-bridge.js",
         "utils.js",
         "content.js",
-        "hackerrank-direct-access.js"
+        "hackerrank-direct-access.js",
+        "geeksforgeeks-bridge.js"
       ],
       "matches": [
         "*://*.leetcode.com/*",
