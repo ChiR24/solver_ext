@@ -1,3 +1,63 @@
+// Smart Solver Extension - Content Script
+// Integrates with optimizers for better performance
+
+// Initialize platform-specific optimizers
+(function initializeOptimizers() {
+  // Debug logger
+  const logger = {
+    DEBUG: true,
+    log: function(...args) {
+      if (this.DEBUG) {
+        console.log('[Solver]', ...args);
+      }
+    }
+  };
+
+  // Detect current platform
+  function detectPlatform() {
+    const host = window.location.hostname;
+    if (host.includes('hackerrank.com')) return 'hackerrank';
+    if (host.includes('leetcode.com')) return 'leetcode';
+    if (host.includes('geeksforgeeks.org')) return 'geeksforgeeks';
+    if (host.includes('atcoder.jp')) return 'atcoder';
+    if (host.includes('codechef.com')) return 'codechef';
+    return 'unknown';
+  }
+
+  // Load platform-specific optimizers if not already loaded
+  function ensureOptimizersLoaded() {
+    const platform = detectPlatform();
+    logger.log(`Ensuring optimizers are loaded for ${platform}`);
+
+    // Check if optimizers are already loaded
+    if (window.HackerRankOptimizer || window.EditorOptimized || window.SolverEarlyOptimizer) {
+      logger.log('Optimizers already loaded');
+      return;
+    }
+
+    // Load appropriate optimizer
+    if (platform === 'hackerrank') {
+      loadScript('hackerrank-optimizer.js');
+    } else {
+      loadScript('editor-optimized.js');
+    }
+  }
+
+  // Helper to load a script
+  function loadScript(scriptName) {
+    logger.log(`Loading script: ${scriptName}`);
+    const script = document.createElement('script');
+    script.src = chrome.runtime.getURL(scriptName);
+    script.onload = function() {
+      logger.log(`Loaded ${scriptName}`);
+    };
+    (document.head || document.documentElement).appendChild(script);
+  }
+
+  // Initialize optimizers
+  ensureOptimizersLoaded();
+})();
+
 // Debug logger utility
 const DEBUG = {
   NONE: 0,     // No logs
@@ -39,6 +99,20 @@ const logger = {
     }
   }
 };
+
+// OPTIMIZED: Add constant for platform detection
+const isHackerRank = window.location.hostname.includes('hackerrank.com');
+
+// OPTIMIZATION: For HackerRank, initialize direct access immediately on page load
+if (isHackerRank) {
+  // Load the direct access script immediately
+  const script = document.createElement('script');
+  script.src = chrome.runtime.getURL('hackerrank-direct-access.js');
+  script.type = 'text/javascript';
+  (document.head || document.documentElement).appendChild(script);
+  
+  logger.info('HackerRank detected - Direct access script loaded preemptively');
+}
 
 // Keyboard shortcut configuration
 const DEFAULT_SHORTCUT = {
@@ -254,83 +328,67 @@ async function handleSolveRequest() {
       throw new Error('No code editor found on this page. Please navigate to a page with a code editor or a supported coding platform.');
     }
 
-    // For HackerRank, ensure the bridge is initialized
-    if (window.location.hostname.includes('hackerrank.com')) {
-      logger.info('HackerRank detected, checking editor bridge');
+    // OPTIMIZATION: For HackerRank, use dedicated fast-path with shorter timeouts
+    if (isHackerRank) {
+      logger.info('HackerRank detected, using optimized handling');
       
-      // Try to initialize direct access first
-      try {
-        // Check if direct access script is already loaded
-        if (typeof window.hackerrankDirectSetValue !== 'function') {
-          logger.debug('Direct access not initialized, loading script');
-          
-          // Load the direct access script
+      // OPTIMIZATION: Directly check for direct access function and retry faster if needed
+      // Skip the bridge initialization if direct access is available
+      if (typeof window.hackerrankDirectSetValue !== 'function') {
+        logger.debug('Direct access not initialized, checking if script is loaded');
+        
+        // Check if script is already in the page
+        const scriptExists = Array.from(document.scripts).some(s => 
+          s.src && s.src.includes('hackerrank-direct-access.js'));
+        
+        // If not already added, add it now
+        if (!scriptExists) {
           const script = document.createElement('script');
           script.src = chrome.runtime.getURL('hackerrank-direct-access.js');
           script.type = 'text/javascript';
           document.head.appendChild(script);
-          
-          // Wait for script to load
-          await new Promise(resolve => {
-            script.onload = resolve;
-            // Timeout after 2 seconds
-            setTimeout(resolve, 2000);
-          });
-          
-          logger.debug('Direct access script loaded');
         }
-      } catch (e) {
-        logger.error('Error initializing direct access:', e);
+        
+        // OPTIMIZATION: Reduced wait time from 2000ms to 500ms
+        // Wait for direct access to be available with shorter timeout
+        let directAccessAvailable = false;
+        const startTime = Date.now();
+        while (Date.now() - startTime < 500) {
+          if (typeof window.hackerrankDirectSetValue === 'function') {
+            directAccessAvailable = true;
+            logger.debug('Direct access available after', Date.now() - startTime, 'ms');
+            break;
+          }
+          // Use a very short sleep to avoid blocking the main thread
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        
+        if (!directAccessAvailable) {
+          logger.warn('Direct access not available after timeout, falling back to bridge');
+        }
       }
       
-      // If bridge not initialized or failed, try to reinitialize
-      if (!window.HackerRankBridge || window.HackerRankBridge.initializationAttempts > 3) {
-        logger.info('Reinitializing HackerRank bridge');
+      // OPTIMIZATION: Skip bridge initialization attempts if direct access is available
+      if (typeof window.hackerrankDirectSetValue !== 'function' && 
+          (!window.HackerRankBridge || window.HackerRankBridge.initializationAttempts > 3)) {
+        // Only try to initialize bridge if direct access failed
+        logger.info('Direct access failed, initializing HackerRank bridge');
         
-        // Try to reinitialize the bridge
         try {
           if (typeof initializeEditorBridges === 'function') {
             initializeEditorBridges();
           } else {
-            // If function not available, try to reload the bridge script
+            // Fast loading of bridge script
             const script = document.createElement('script');
             script.src = chrome.runtime.getURL('editor-bridges.js');
             script.type = 'text/javascript';
             document.head.appendChild(script);
             
-            // Wait for script to load
-            await new Promise(resolve => {
-              script.onload = resolve;
-              // Timeout after 2 seconds
-              setTimeout(resolve, 2000);
-            });
+            // OPTIMIZATION: Reduced wait time to 500ms
+            await new Promise(resolve => setTimeout(resolve, 500));
           }
         } catch (e) {
-          logger.error('Error reinitializing bridge:', e);
-        }
-      }
-      
-      // Try to find Monaco in the page directly
-      const monacoEditors = document.querySelectorAll('.monaco-editor');
-      if (monacoEditors.length > 0) {
-        logger.info('Found Monaco editors in the page:', monacoEditors.length);
-      }
-      
-      // Check if Monaco is available in HackerRank's custom locations
-      const hrLocations = [
-        'hackerrank_r_krackjack',
-        '_monaco',
-        'monaco',
-        'MonacoEnvironment',
-        'MonacoEditor'
-      ];
-      
-      for (const loc of hrLocations) {
-        const value = window[loc];
-        if (value?.editor) {
-          logger.debug(`Found Monaco in ${loc}, making it globally available`);
-          window.monaco = window.monaco || value;
-          break;
+          logger.error('Error initializing bridge:', e);
         }
       }
     }
@@ -382,12 +440,12 @@ async function handleSolveRequest() {
     // Apply the solution
     logger.info('Attempting to apply solution...');
     
-    // For HackerRank, try direct DOM manipulation if the bridge fails
-    if (window.location.hostname.includes('hackerrank.com')) {
+    // OPTIMIZATION: For HackerRank, try direct access first with early return on success
+    if (isHackerRank) {
       try {
         // First try using the direct access function if available
         if (typeof window.hackerrankDirectSetValue === 'function') {
-          logger.info('Using direct access function');
+          logger.info('Using HackerRank direct access function');
           const result = window.hackerrankDirectSetValue(solution.answer);
           if (result && result.success) {
             logger.info('Successfully set editor value using direct function');
@@ -396,16 +454,22 @@ async function handleSolveRequest() {
           logger.warn('Direct function failed:', result?.error || 'Unknown error');
         }
         
-        // Then try using the bridge
-        await applySolution(solution.answer, problemDetails.type);
-      } catch (e) {
-        logger.warn('Bridge failed, trying direct DOM manipulation:', e.message);
-        
-        // Try direct DOM manipulation
-        const success = await applyDirectSolution(solution.answer);
-        if (!success) {
-          throw new Error('Failed to apply solution using both bridge and direct manipulation');
+        // Try using the bridge as fallback
+        try {
+          await applySolution(solution.answer, problemDetails.type);
+          return { success: true };
+        } catch (e) {
+          logger.warn('Bridge failed, trying direct DOM manipulation:', e.message);
+          
+          // Try direct DOM manipulation as last resort
+          const success = await applyDirectSolution(solution.answer);
+          if (success) {
+            return { success: true };
+          }
+          throw new Error('Failed to apply solution using all available methods');
         }
+      } catch (error) {
+        throw new Error(`HackerRank editor could not be updated: ${error.message}`);
       }
     } else {
       // For other platforms, use the standard approach
@@ -451,198 +515,149 @@ async function handleSolveRequest() {
   }
 }
 
-// Direct solution application for HackerRank
+// OPTIMIZATION: Add HackerRank-specific direct DOM manipulation function with faster timeouts
 async function applyDirectSolution(solution) {
-  logger.info('Attempting direct solution application');
+  logger.info('Applying solution via direct DOM manipulation');
   
-  // Clean up the solution
-  let cleanSolution = solution;
-  if (solution.includes('```')) {
-    const matches = solution.match(/```(?:\w+\n)?([\s\S]*?)```/);
-    cleanSolution = matches ? matches[1].trim() : solution.trim();
-  }
-  
-  // First try using the global function if available
   try {
-    // Check if our direct access script has been loaded and initialized
-    if (typeof window.hackerrankDirectSetValue === 'function') {
-      logger.debug('Using hackerrankDirectSetValue function');
-      const result = window.hackerrankDirectSetValue(cleanSolution);
+    // First try to use our optimized HackerRank solution if available
+    if (window.HackerRankOptimizer?.applyHackerRankSolution) {
+      logger.debug('Using HackerRank optimizer');
+      const result = await window.HackerRankOptimizer.applyHackerRankSolution(solution);
       if (result && result.success) {
-        logger.info('Successfully set editor value using direct function');
-        return true;
+        logger.info('Successfully applied solution using HackerRank optimizer');
+        return { success: true };
       }
-      logger.warn('Direct function failed:', result?.error || 'Unknown error');
+      logger.warn('HackerRank optimizer failed, falling back to standard method');
+    } else if (window.EditorOptimized?.applyCodeSolution) {
+      // Try using the universal editor optimizer
+      logger.debug('Using universal editor optimizer');
+      try {
+        const result = await window.EditorOptimized.applyCodeSolution(solution);
+        if (result) {
+          logger.info('Successfully applied solution using universal editor optimizer');
+          return { success: true };
+        }
+      } catch (e) {
+        logger.warn('Universal editor optimizer failed:', e);
+      }
     }
-  } catch (e) {
-    logger.error('Error using direct function:', e);
-  }
-  
-  // Try to find Monaco editor directly
-  const editorWrappers = document.querySelectorAll('.hr-monaco-editor-wrapper');
-  if (editorWrappers.length === 0) {
-    logger.error('No editor wrappers found');
-    return false;
-  }
-  
-  logger.debug('Found editor wrappers:', editorWrappers.length);
-  
-  // Try to find Monaco editor in wrapper
-  for (const wrapper of editorWrappers) {
-    const monacoElement = wrapper.querySelector('.monaco-editor');
-    if (!monacoElement) continue;
     
-    logger.debug('Found Monaco editor element');
+    // Fall back to the original implementation
+    logger.debug('Falling back to original implementation');
     
-    // Try to access Monaco editor
-    if (!window.monaco?.editor) {
-      logger.warn('Monaco editor not available in window');
+    // Try to find the Monaco editor element
+    const monacoElements = document.querySelectorAll('.monaco-editor');
+    if (monacoElements.length > 0) {
+      logger.debug('Found Monaco editor elements:', monacoElements.length);
       
-      // Try to find Monaco in HackerRank's custom locations
-      const hrLocations = [
-        'hackerrank_r_krackjack',
-        '_monaco',
-        'monaco',
-        'MonacoEnvironment',
-        'MonacoEditor'
-      ];
-      
-      let foundMonaco = false;
-      for (const loc of hrLocations) {
-        const value = window[loc];
-        if (value?.editor) {
-          logger.debug(`Found Monaco in ${loc}, using it`);
-          foundMonaco = true;
-          
-          // Try to set value using this Monaco instance
+      // Try to inject a script to directly modify the editor
+      const script = document.createElement('script');
+      script.textContent = `
+        (function() {
           try {
-            const editors = value.editor.getEditors();
-            if (editors && editors.length > 0) {
-              const editor = editors[0];
-              const model = editor.getModel();
-              if (model) {
-                try {
-                  model.pushEditOperations(
-                    [],
-                    [{
-                      range: model.getFullModelRange(),
-                      text: cleanSolution
-                    }],
-                    () => null
-                  );
-                  logger.info('Successfully set editor value using', loc);
-                  return true;
-                } catch (e) {
-                  logger.warn(`pushEditOperations failed for ${loc}, trying setValue:`, e);
-                  try {
-                    model.setValue(cleanSolution);
-                    logger.info('Successfully set editor value using setValue on', loc);
+            // Get all editor locations
+            const locations = [
+              'monaco',
+              'hackerrank_r_krackjack',
+              '_monaco',
+              'MonacoEnvironment',
+              'MonacoEditor'
+            ];
+            
+            // Try each location
+            for (const loc of locations) {
+              if (window[loc]?.editor) {
+                const editors = window[loc].editor.getEditors();
+                if (editors && editors.length > 0) {
+                  const editor = editors[0];
+                  const model = editor.getModel();
+                  if (model) {
+                    // Set value and update cursor
+                    editor.setValue(${JSON.stringify(solution)});
+                    editor.focus();
+                    console.log('Successfully set editor value via direct script injection');
                     return true;
-                  } catch (e2) {
-                    logger.error(`setValue also failed for ${loc}:`, e2);
                   }
+                }
+                
+                // If no editor instances but models exist
+                const models = window[loc].editor.getModels();
+                if (models && models.length > 0) {
+                  models[0].setValue(${JSON.stringify(solution)});
+                  console.log('Successfully set model value via direct script injection');
+                  return true;
                 }
               }
             }
+            
+            console.log('Could not find Monaco editor instance');
+            return false;
           } catch (e) {
-            logger.error(`Error using ${loc}:`, e);
+            console.error('Error in direct editor manipulation:', e);
+            return false;
           }
-        }
-      }
+        })();
+      `;
+      document.body.appendChild(script);
+      document.body.removeChild(script);
       
-      if (!foundMonaco) {
-        continue;
+      // Wait a bit to see if the script worked
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      // Check if the content was set correctly
+      const success = await checkEditorContent(solution);
+      if (success) {
+        logger.info('Successfully applied solution via direct script injection');
+        return { success: true };
       }
     }
     
-    const editors = window.monaco.editor.getEditors();
-    if (!editors || editors.length === 0) {
-      logger.warn('No editors found in monaco.editor.getEditors()');
-      continue;
-    }
-    
-    logger.debug('Found', editors.length, 'Monaco editors');
-    
-    // Try each editor
-    for (const editor of editors) {
-      try {
-        const model = editor.getModel();
-        if (!model) {
-          logger.warn('Editor has no model');
-          continue;
-        }
-        
-        logger.debug('Found editor model, setting value');
-        
-        // Try to set value
-        try {
-          // Method 1: Use pushEditOperations
-          model.pushEditOperations(
-            [],
-            [{
-              range: model.getFullModelRange(),
-              text: cleanSolution
-            }],
-            () => null
-          );
-        } catch (e) {
-          logger.warn('pushEditOperations failed, trying setValue:', e);
-          // Method 2: Use setValue
-          model.setValue(cleanSolution);
-        }
-        
-        // Verify the change
-        const newValue = model.getValue();
-        if (newValue !== cleanSolution) {
-          logger.warn('Value verification failed, trying again');
-          model.setValue(cleanSolution);
-        }
-        
-        logger.info('Successfully set editor value');
-        return true;
-      } catch (e) {
-        logger.error('Error setting editor value:', e);
-      }
-    }
-  }
-  
-  // Try one more approach - create a script element with src
-  try {
-    logger.debug('Trying script with src as last resort');
-    
-    // Create a temporary script file with the solution
-    const tempScript = document.createElement('script');
-    tempScript.type = 'text/javascript';
-    tempScript.src = chrome.runtime.getURL('hackerrank-direct-access.js');
-    
-    // Add the script to the page
-    document.head.appendChild(tempScript);
-    
-    // Wait for the script to load
-    await new Promise(resolve => {
-      tempScript.onload = resolve;
-      // Timeout after 2 seconds
-      setTimeout(resolve, 2000);
-    });
-    
-    // Try to use the direct access function
-    if (typeof window.hackerrankDirectSetValue === 'function') {
-      logger.debug('Using hackerrankDirectSetValue function after loading script');
-      const result = window.hackerrankDirectSetValue(cleanSolution);
-      if (result && result.success) {
-        logger.info('Successfully set editor value using direct function');
-        return true;
+    // If we got here, try the textarea approach
+    const textareas = document.querySelectorAll('textarea');
+    for (const textarea of textareas) {
+      if (textarea.offsetParent !== null) { // Element is visible
+        textarea.value = solution;
+        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        textarea.dispatchEvent(new Event('change', { bubbles: true }));
+        logger.info('Applied solution to textarea');
+        return { success: true };
       }
     }
     
-    // Clean up
-    tempScript.remove();
+    logger.error('Failed to apply solution via direct DOM manipulation');
+    return { success: false, error: 'Could not find editor' };
   } catch (e) {
-    logger.error('Error with script src approach:', e);
+    logger.error('Error in applyDirectSolution:', e);
+    return { success: false, error: e.message };
   }
-  
-  logger.error('Failed to apply solution directly');
-  return false;
+}
+
+// OPTIMIZATION: Helper to check if content was set successfully
+async function checkEditorContent(expectedContent) {
+  try {
+    // Try getting value through direct access
+    if (typeof window.hackerrankDirectGetValue === 'function') {
+      const currentValue = window.hackerrankDirectGetValue();
+      // Compare first 50 chars to avoid long string comparison
+      if (currentValue && currentValue.substring(0, 50) === expectedContent.substring(0, 50)) {
+        return true;
+      }
+    }
+    
+    // Check through bridge if available
+    if (window.HackerRankBridge?.getEditorValue) {
+      const value = await window.HackerRankBridge.getEditorValue();
+      if (value && value.substring(0, 50) === expectedContent.substring(0, 50)) {
+        return true;
+      }
+    }
+    
+    return false;
+  } catch (e) {
+    logger.debug('Error checking editor content:', e);
+    return false;
+  }
 }
 
 // Auto-solve feature

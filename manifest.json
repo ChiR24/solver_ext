@@ -50,8 +50,8 @@
         "*://*.interviewbit.com/problems/*",
         "https://*/*"
       ],
-      "js": ["editor-bridges.js", "monaco-bridge.js", "utils.js", "content.js"],
-      "run_at": "document_idle",
+      "js": ["early-optimizer.js", "editor-bridges.js", "monaco-bridge.js", "utils.js", "content.js"],
+      "run_at": "document_start",
       "all_frames": true
     }
   ],
@@ -62,7 +62,10 @@
         "monaco-bridge.js",
         "utils.js",
         "content.js",
-        "hackerrank-direct-access.js"
+        "hackerrank-direct-access.js",
+        "editor-optimized.js",
+        "hackerrank-optimizer.js",
+        "early-optimizer.js"
       ],
       "matches": [
         "*://*.leetcode.com/*",
