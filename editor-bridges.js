@@ -1099,99 +1099,159 @@
   const initGeeksForGeeksEditorBridge = () => {
     console.log('Initializing GeeksForGeeks editor bridge');
     
-    // Find the Ace editor element
-    const editorElement = document.querySelector('.ace_editor');
-    if (editorElement) {
-      console.log('Found Ace editor element, injecting helper');
-      
-      // Instead of injecting a script, we'll directly access the Ace editor
+    // Function to find and initialize the Ace editor
+    const findAndInitAceEditor = () => {
       try {
-        // Check if ace is available in the window object
-        if (window.ace && typeof window.ace.edit === 'function') {
-          const aceEditor = window.ace.edit(editorElement);
+        // Look for Ace editor elements
+        const aceEditorElements = document.querySelectorAll('.ace_editor');
+        if (aceEditorElements.length > 0) {
+          console.log(`Found ${aceEditorElements.length} Ace editor elements`);
           
-          // Store the editor instance for later use
-          window.smartSolverAceEditor = aceEditor;
+          // Try to get the Ace editor instance
+          if (window.ace && window.ace.edit) {
+            // Store the editor instance globally for direct access
+            window.smartSolverAceEditor = window.ace.edit(aceEditorElements[0]);
+            
+            // Define a helper method to set the editor value
+            window.setEditorValue = (value) => {
+              try {
+                window.smartSolverAceEditor.setValue(value, 1); // 1 means move cursor to start
+                return true;
+              } catch (err) {
+                console.error('Failed to set Ace editor value:', err);
+                return false;
+              }
+            };
+            
+            console.log('Successfully initialized Ace editor bridge');
+            return true;
+          }
+        }
+        
+        console.log('No Ace editor element found');
+        return false;
+      } catch (err) {
+        console.error('Error initializing GeeksForGeeks editor bridge:', err);
+        return false;
+      }
+    };
+    
+    // If we can't find the Ace editor, try to find a textarea
+    const findAndInitTextarea = () => {
+      try {
+        const textareas = document.querySelectorAll('textarea');
+        if (textareas.length > 0) {
+          console.log(`Found ${textareas.length} textareas`);
           
-          console.log('Successfully accessed Ace editor instance');
+          // Store the first textarea globally
+          window.smartSolverTextarea = textareas[0];
           
-          // Add a helper method to the window object that our extension can call
+          // Define a helper method to set the textarea value
           window.setEditorValue = (value) => {
             try {
-              if (window.smartSolverAceEditor) {
-                window.smartSolverAceEditor.setValue(value);
-                window.smartSolverAceEditor.clearSelection();
-                return true;
-              }
-              return false;
-            } catch (error) {
-              console.error('Error setting editor value:', error);
+              window.smartSolverTextarea.value = value;
+              window.smartSolverTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+              window.smartSolverTextarea.dispatchEvent(new Event('change', { bubbles: true }));
+              return true;
+            } catch (err) {
+              console.error('Failed to set textarea value:', err);
               return false;
             }
           };
-        } else {
-          console.log('Ace editor not found in window object');
+          
+          console.log('Successfully initialized textarea bridge');
+          return true;
         }
-      } catch (error) {
-        console.error('Error initializing GeeksForGeeks editor bridge:', error);
-      }
-    } else {
-      console.log('No Ace editor element found');
-      
-      // Try to find textarea as fallback
-      const textarea = document.querySelector('textarea[data-role="editor"], textarea#code, textarea.inputArea');
-      if (textarea) {
-        console.log('Found textarea editor element');
         
-        // Add a helper method for the textarea
-        window.setEditorValue = (value) => {
-          try {
-            textarea.value = value;
-            textarea.dispatchEvent(new Event('input', { bubbles: true }));
-            textarea.dispatchEvent(new Event('change', { bubbles: true }));
-            return true;
-          } catch (error) {
-            console.error('Error setting textarea value:', error);
-            return false;
-          }
-        };
+        console.log('No textarea found');
+        return false;
+      } catch (err) {
+        console.error('Error initializing textarea bridge:', err);
+        return false;
       }
+    };
+    
+    // Try to initialize the editor bridge
+    if (!findAndInitAceEditor()) {
+      findAndInitTextarea();
     }
-  };
-
-  // Replace the injectAceHelper function with a CSP-friendly version
-  const injectAceHelper = () => {
-    try {
-      // Instead of injecting a script, we'll directly access the Ace editor
-      if (window.ace && typeof window.ace.edit === 'function') {
-        const editorElements = document.querySelectorAll('.ace_editor');
-        if (editorElements.length > 0) {
-          for (const editorElement of editorElements) {
-            try {
-              const aceEditor = window.ace.edit(editorElement);
-              if (aceEditor) {
-                console.log('Successfully accessed Ace editor instance');
-                return true;
-              }
-            } catch (error) {
-              console.error('Error accessing Ace editor:', error);
+    
+    // Set up a MutationObserver to detect when the editor is added to the DOM
+    const observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        if (mutation.addedNodes.length > 0) {
+          if (document.querySelector('.ace_editor') && !window.smartSolverAceEditor) {
+            if (findAndInitAceEditor()) {
+              observer.disconnect();
+            }
+          } else if (document.querySelector('textarea') && !window.smartSolverTextarea) {
+            if (findAndInitTextarea()) {
+              observer.disconnect();
             }
           }
         }
       }
+    });
+    
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true
+    });
+  };
+
+  // Inject a helper script to access the Ace editor directly
+  const injectAceHelper = () => {
+    try {
+      // Create a script element to execute in the page context
+      const script = document.createElement('script');
+      script.textContent = `
+        (function() {
+          try {
+            // Wait for Ace editor to be available
+            const checkForAce = setInterval(() => {
+              if (window.ace && window.ace.edit) {
+                clearInterval(checkForAce);
+                
+                // Find all Ace editor elements
+                const aceEditorElements = document.querySelectorAll('.ace_editor');
+                if (aceEditorElements.length > 0) {
+                  // Store the editor instance globally
+                  window.smartSolverAceEditor = window.ace.edit(aceEditorElements[0]);
+                  
+                  // Define a helper method to set the editor value
+                  window.setEditorValue = (value) => {
+                    try {
+                      window.smartSolverAceEditor.setValue(value, 1);
+                      return true;
+                    } catch (err) {
+                      console.error('Failed to set Ace editor value:', err);
+                      return false;
+                    }
+                  };
+                  
+                  console.log('Successfully injected Ace helper');
+                }
+              }
+            }, 500);
+            
+            // Timeout after 10 seconds
+            setTimeout(() => clearInterval(checkForAce), 10000);
+          } catch (err) {
+            console.error('Error in injected Ace helper:', err);
+          }
+        })();
+      `;
       
-      console.log('Could not access Ace editor directly');
-      return false;
-    } catch (error) {
-      console.error('Error in injectAceHelper:', error);
-      return false;
+      document.head.appendChild(script);
+      document.head.removeChild(script);
+    } catch (err) {
+      console.error('Failed to inject Ace helper:', err);
     }
   };
 
-  // Initialize GeeksForGeeks bridge if on GeeksForGeeks
-  if (window.location.hostname.includes('geeksforgeeks.org')) {
-    console.log('Initializing GeeksForGeeks bridge');
+  // Initialize the GeeksForGeeks editor bridge
+  if (window.location.hostname.includes('geeksforgeeks')) {
     initGeeksForGeeksEditorBridge();
-    window.GeeksForGeeksEditor = { getEditor: initGeeksForGeeksEditorBridge };
+    injectAceHelper();
   }
 })(); 
