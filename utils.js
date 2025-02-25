@@ -1486,6 +1486,13 @@ const applySolution = async (solution, type) => {
     switch (type) {
       case 'leetcode':
       case 'hackerrank':  // Added hackerrank case
+      case 'atcoder':     // Added atcoder case
+      case 'geeksforgeeks':
+      case 'codewars':
+      case 'hackerearth':
+      case 'codeforces': 
+      case 'spoj':
+      case 'interviewbit':
       case 'code':
         return await applyCodeSolution(solution);
       case 'mcq':
@@ -2828,9 +2835,9 @@ const getAtCoderLanguage = async () => {
     const languageSelect = document.querySelector('#select-lang') || 
                            document.querySelector('select[name="language_id"]');
     
-    if (languageSelect) {
+    if (languageSelect && languageSelect.options && languageSelect.selectedIndex >= 0) {
       const selectedOption = languageSelect.options[languageSelect.selectedIndex];
-      if (selectedOption) {
+      if (selectedOption && selectedOption.textContent) {
         const langText = selectedOption.textContent.trim().toLowerCase();
         console.log('DEBUG - Found language from selector:', langText);
         return normalizeLanguage(langText);
@@ -2847,7 +2854,7 @@ const getAtCoderLanguage = async () => {
     
     for (const selector of languageIndicators) {
       const element = document.querySelector(selector);
-      if (element) {
+      if (element && element.textContent) {
         const langText = element.textContent.trim().toLowerCase();
         if (langText) {
           console.log('DEBUG - Found language from UI:', langText);
@@ -2856,7 +2863,22 @@ const getAtCoderLanguage = async () => {
       }
     }
     
+    // Try to get language from URL
+    try {
+      const urlMatch = window.location.pathname.match(/\/([^/]+)\.([^/.]+)$/);
+      if (urlMatch && urlMatch[2]) {
+        const possibleLang = urlMatch[2].toLowerCase();
+        console.log('DEBUG - Found possible language from URL:', possibleLang);
+        if (['c', 'cpp', 'java', 'py', 'python', 'js', 'javascript'].includes(possibleLang)) {
+          return normalizeLanguage(possibleLang);
+        }
+      }
+    } catch (e) {
+      console.error('DEBUG - Error extracting language from URL:', e);
+    }
+    
     // Default language for AtCoder is often C++
+    console.log('DEBUG - Using default language: cpp');
     return 'cpp';
   } catch (error) {
     console.error('DEBUG - Error detecting AtCoder language:', error);
