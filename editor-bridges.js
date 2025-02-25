@@ -539,6 +539,7 @@
     maxDebugHistory: 20,
     initializationAttempts: 0,
     maxInitAttempts: 100, // Increased from 50 to 100 for more attempts
+    directAccessInitialized: false,
 
     // Helper to log debug info - only for critical editor issues
     logDebug: (message, data = {}, isError = false) => {
@@ -563,6 +564,313 @@
       HackerRankBridge.debugHistory.unshift(debugEntry);
       if (HackerRankBridge.debugHistory.length > HackerRankBridge.maxDebugHistory) {
         HackerRankBridge.debugHistory.pop();
+      }
+    },
+
+    // Initialize direct access to HackerRank's Monaco editor
+    initializeDirectAccess: () => {
+      if (HackerRankBridge.directAccessInitialized) {
+        return;
+      }
+
+      try {
+        // Create a script element to inject code directly into the page context
+        const script = document.createElement('script');
+        script.textContent = `
+          // HackerRank Direct Access Script
+          (function() {
+            console.log('[HackerRank Direct] Initializing direct access to Monaco editor');
+            
+            // Create a communication channel with the extension
+            window.addEventListener('message', function(event) {
+              if (event.data && event.data.type === 'HR_DIRECT_ACCESS') {
+                const { action, payload, requestId } = event.data;
+                
+                try {
+                  if (action === 'GET_EDITOR') {
+                    // Find Monaco editor in HackerRank's globals
+                    const editorInfo = findHackerRankEditor();
+                    window.postMessage({
+                      type: 'HR_DIRECT_RESPONSE',
+                      action: 'GET_EDITOR',
+                      success: !!editorInfo.editor,
+                      payload: editorInfo,
+                      requestId
+                    }, '*');
+                  } else if (action === 'SET_VALUE') {
+                    // Set value in editor
+                    const result = setEditorValue(payload.value);
+                    window.postMessage({
+                      type: 'HR_DIRECT_RESPONSE',
+                      action: 'SET_VALUE',
+                      success: result.success,
+                      payload: result,
+                      requestId
+                    }, '*');
+                  }
+                } catch (e) {
+                  console.error('[HackerRank Direct] Error handling message:', e);
+                  window.postMessage({
+                    type: 'HR_DIRECT_RESPONSE',
+                    action,
+                    success: false,
+                    error: e.message,
+                    requestId
+                  }, '*');
+                }
+              }
+            });
+            
+            // Function to find HackerRank's Monaco editor
+            function findHackerRankEditor() {
+              const result = {
+                found: false,
+                location: null,
+                editor: null,
+                model: null
+              };
+              
+              // Check HackerRank specific globals
+              const hrLocations = [
+                'hackerrank_r_krackjack',
+                '_monaco',
+                'monaco',
+                'MonacoEnvironment',
+                'MonacoEditor'
+              ];
+              
+              // First try to find in globals
+              for (const loc of hrLocations) {
+                if (window[loc]?.editor) {
+                  const editors = window[loc].editor.getEditors?.();
+                  if (editors && editors.length > 0) {
+                    result.found = true;
+                    result.location = loc;
+                    result.editor = editors[0];
+                    result.model = editors[0].getModel();
+                    console.log('[HackerRank Direct] Found editor in global:', loc);
+                    break;
+                  }
+                }
+              }
+              
+              // If not found in globals, try to find in DOM
+              if (!result.found) {
+                // Look for editor wrappers
+                const wrappers = document.querySelectorAll('.hr-monaco-editor-wrapper');
+                if (wrappers.length > 0) {
+                  console.log('[HackerRank Direct] Found editor wrappers:', wrappers.length);
+                  
+                  // Try to find Monaco editor in wrapper
+                  for (const wrapper of wrappers) {
+                    const monacoElement = wrapper.querySelector('.monaco-editor');
+                    if (monacoElement && window.monaco?.editor) {
+                      const editors = window.monaco.editor.getEditors();
+                      if (editors && editors.length > 0) {
+                        result.found = true;
+                        result.location = 'DOM';
+                        result.editor = editors[0];
+                        result.model = editors[0].getModel();
+                        console.log('[HackerRank Direct] Found editor in DOM');
+                        break;
+                      }
+                    }
+                  }
+                }
+              }
+              
+              // If still not found, try to find any Monaco editor
+              if (!result.found && window.monaco?.editor) {
+                const editors = window.monaco.editor.getEditors();
+                if (editors && editors.length > 0) {
+                  result.found = true;
+                  result.location = 'monaco.editor';
+                  result.editor = editors[0];
+                  result.model = editors[0].getModel();
+                  console.log('[HackerRank Direct] Found editor in monaco.editor');
+                }
+              }
+              
+              return result;
+            }
+            
+            // Function to set value in editor
+            function setEditorValue(value) {
+              const editorInfo = findHackerRankEditor();
+              if (!editorInfo.found || !editorInfo.editor || !editorInfo.model) {
+                return { success: false, error: 'Editor not found' };
+              }
+              
+              try {
+                // Try multiple methods to set value
+                try {
+                  // Method 1: Use pushEditOperations
+                  editorInfo.model.pushEditOperations(
+                    [],
+                    [{
+                      range: editorInfo.model.getFullModelRange(),
+                      text: value
+                    }],
+                    () => null
+                  );
+                } catch (e) {
+                  console.warn('[HackerRank Direct] pushEditOperations failed, trying setValue');
+                  // Method 2: Use setValue
+                  editorInfo.model.setValue(value);
+                }
+                
+                // Verify the change
+                const newValue = editorInfo.model.getValue();
+                const success = newValue === value;
+                
+                // If verification failed, try one more time
+                if (!success) {
+                  console.warn('[HackerRank Direct] Value verification failed, trying again');
+                  editorInfo.model.setValue(value);
+                  const retryValue = editorInfo.model.getValue();
+                  return {
+                    success: retryValue === value,
+                    expected: value.length,
+                    actual: retryValue.length
+                  };
+                }
+                
+                return { success: true };
+              } catch (e) {
+                console.error('[HackerRank Direct] Error setting value:', e);
+                return { success: false, error: e.message };
+              }
+            }
+            
+            // Notify that direct access is ready
+            window.postMessage({
+              type: 'HR_DIRECT_READY'
+            }, '*');
+            
+            console.log('[HackerRank Direct] Direct access initialized');
+          })();
+        `;
+        
+        // Append script to page
+        (document.head || document.documentElement).appendChild(script);
+        
+        // Remove script after execution
+        script.onload = function() {
+          this.remove();
+        };
+        
+        // Set up listener for direct access responses
+        window.addEventListener('message', (event) => {
+          if (event.source !== window) return;
+          if (!event.data || event.data.type !== 'HR_DIRECT_RESPONSE') return;
+          
+          const { action, success, payload, requestId, error } = event.data;
+          
+          // Handle response based on action
+          if (action === 'GET_EDITOR') {
+            if (success && payload.found) {
+              HackerRankBridge.logDebug('Direct access found editor', payload);
+              
+              // Create editor instance from direct access info
+              if (!HackerRankBridge.editorInstance) {
+                HackerRankBridge.editorInstance = {
+                  type: 'monaco',
+                  editor: { _directAccess: true },
+                  model: { _directAccess: true },
+                  element: document.querySelector('.hr-monaco-editor-wrapper'),
+                  getValue: () => {
+                    return new Promise((resolve, reject) => {
+                      const requestId = Date.now().toString();
+                      
+                      const handler = (event) => {
+                        if (event.source !== window) return;
+                        if (!event.data || event.data.type !== 'HR_DIRECT_RESPONSE') return;
+                        if (event.data.requestId !== requestId) return;
+                        
+                        window.removeEventListener('message', handler);
+                        
+                        if (event.data.success) {
+                          resolve(event.data.payload.value || '');
+                        } else {
+                          reject(new Error(event.data.error || 'Failed to get value'));
+                        }
+                      };
+                      
+                      window.addEventListener('message', handler);
+                      
+                      window.postMessage({
+                        type: 'HR_DIRECT_ACCESS',
+                        action: 'GET_VALUE',
+                        requestId
+                      }, '*');
+                      
+                      // Timeout after 2 seconds
+                      setTimeout(() => {
+                        window.removeEventListener('message', handler);
+                        reject(new Error('Timeout getting value'));
+                      }, 2000);
+                    });
+                  },
+                  setValue: (value) => {
+                    return new Promise((resolve, reject) => {
+                      const requestId = Date.now().toString();
+                      
+                      const handler = (event) => {
+                        if (event.source !== window) return;
+                        if (!event.data || event.data.type !== 'HR_DIRECT_RESPONSE') return;
+                        if (event.data.requestId !== requestId) return;
+                        
+                        window.removeEventListener('message', handler);
+                        
+                        if (event.data.success) {
+                          resolve(true);
+                        } else {
+                          reject(new Error(event.data.error || 'Failed to set value'));
+                        }
+                      };
+                      
+                      window.addEventListener('message', handler);
+                      
+                      window.postMessage({
+                        type: 'HR_DIRECT_ACCESS',
+                        action: 'SET_VALUE',
+                        payload: { value },
+                        requestId
+                      }, '*');
+                      
+                      // Timeout after 2 seconds
+                      setTimeout(() => {
+                        window.removeEventListener('message', handler);
+                        reject(new Error('Timeout setting value'));
+                      }, 2000);
+                    });
+                  }
+                };
+              }
+            } else {
+              HackerRankBridge.logDebug('Direct access failed to find editor', { error });
+            }
+          }
+        });
+        
+        // Listen for direct access ready message
+        window.addEventListener('message', (event) => {
+          if (event.source !== window) return;
+          if (!event.data || event.data.type !== 'HR_DIRECT_READY') return;
+          
+          HackerRankBridge.logDebug('Direct access ready');
+          HackerRankBridge.directAccessInitialized = true;
+          
+          // Try to get editor
+          window.postMessage({
+            type: 'HR_DIRECT_ACCESS',
+            action: 'GET_EDITOR',
+            requestId: 'init'
+          }, '*');
+        });
+        
+      } catch (e) {
+        HackerRankBridge.logDebug('Error initializing direct access', { error: e.message }, true);
       }
     },
 
@@ -881,6 +1189,9 @@
     },
 
     initialize: () => {
+      // Initialize direct access for HackerRank
+      HackerRankBridge.initializeDirectAccess();
+
       // Function to wait for Monaco
       const waitForMonaco = (callback, maxAttempts = HackerRankBridge.maxInitAttempts) => {
         HackerRankBridge.initializationAttempts = 0;

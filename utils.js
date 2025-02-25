@@ -1701,14 +1701,31 @@ const waitForEditor = async () => {
         // Try to initialize the bridge if it's not already done
         if (typeof initializeEditorBridges === 'function') {
           initializeEditorBridges();
+        } else {
+          // If function not available, try to reload the bridge script
+          const script = document.createElement('script');
+          script.src = chrome.runtime.getURL('editor-bridges.js');
+          document.head.appendChild(script);
+          
+          // Wait for script to load
+          await new Promise(resolve => setTimeout(resolve, 1000));
         }
       } catch (e) {
         console.error('Failed to initialize editor bridges:', e);
       }
     }
 
+    // Try to initialize direct access if not already done
+    if (window.HackerRankBridge && !window.HackerRankBridge.directAccessInitialized) {
+      console.log('Initializing HackerRank direct access');
+      window.HackerRankBridge.initializeDirectAccess();
+      // Wait a bit for initialization
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+
     let retryCount = 0;
     while (retryCount < maxRetries) {
+      // First try to get editor through bridge
       const editor = window.HackerRankBridge?.getEditor();
       if (editor) {
         console.log('Found HackerRank editor:', editor.type);
@@ -1719,7 +1736,7 @@ const waitForEditor = async () => {
             try {
               // Try up to 3 times to set the value
               for (let attempt = 0; attempt < 3; attempt++) {
-                const success = editor.setValue(value);
+                const success = await editor.setValue(value);
                 if (success) {
                   return true;
                 }
@@ -1733,6 +1750,110 @@ const waitForEditor = async () => {
             }
           }
         };
+      }
+
+      // If bridge failed, try direct DOM manipulation as a last resort
+      if (retryCount >= maxRetries - 2) {
+        console.log('Attempting direct DOM manipulation as last resort');
+        try {
+          // Try to find Monaco editor directly
+          const hrLocations = [
+            'hackerrank_r_krackjack',
+            '_monaco',
+            'monaco',
+            'MonacoEnvironment',
+            'MonacoEditor'
+          ];
+          
+          // Check each location for Monaco
+          for (const loc of hrLocations) {
+            const value = window[loc];
+            if (value?.editor) {
+              console.log(`Found Monaco in ${loc}`);
+              const editors = value.editor.getEditors?.();
+              if (editors?.length > 0) {
+                const editor = editors[0];
+                const model = editor.getModel();
+                
+                if (model) {
+                  console.log('Found Monaco model, will use for direct manipulation');
+                  return {
+                    container: document.querySelector('.hr-monaco-editor-wrapper') || document.body,
+                    textarea: document.querySelector('.inputarea') || document.body,
+                    setValue: async (value) => {
+                      try {
+                        // Try multiple methods
+                        try {
+                          // Method 1: pushEditOperations
+                          model.pushEditOperations(
+                            [],
+                            [{
+                              range: model.getFullModelRange(),
+                              text: value
+                            }],
+                            () => null
+                          );
+                        } catch (e) {
+                          console.warn('pushEditOperations failed, trying setValue');
+                          // Method 2: setValue
+                          model.setValue(value);
+                        }
+                        
+                        // Verify
+                        const newValue = model.getValue();
+                        if (newValue !== value) {
+                          console.warn('Value verification failed, trying again');
+                          model.setValue(value);
+                        }
+                        
+                        return true;
+                      } catch (e) {
+                        console.error('Error in direct manipulation:', e);
+                        return false;
+                      }
+                    }
+                  };
+                }
+              }
+            }
+          }
+          
+          // Try to find editor in DOM
+          const editorWrappers = document.querySelectorAll('.hr-monaco-editor-wrapper');
+          if (editorWrappers.length > 0) {
+            console.log('Found HR Monaco editor wrappers:', editorWrappers.length);
+            
+            for (const wrapper of editorWrappers) {
+              const monacoElement = wrapper.querySelector('.monaco-editor');
+              if (monacoElement && window.monaco?.editor) {
+                const editors = window.monaco.editor.getEditors();
+                if (editors?.length > 0) {
+                  const editor = editors[0];
+                  const model = editor.getModel();
+                  
+                  if (model) {
+                    console.log('Found Monaco editor in wrapper');
+                    return {
+                      container: wrapper,
+                      textarea: monacoElement.querySelector('.inputarea') || monacoElement,
+                      setValue: async (value) => {
+                        try {
+                          model.setValue(value);
+                          return true;
+                        } catch (e) {
+                          console.error('Error setting value:', e);
+                          return false;
+                        }
+                      }
+                    };
+                  }
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.error('Error in direct DOM manipulation:', e);
+        }
       }
 
       console.log(`Waiting for HackerRank editor (attempt ${retryCount + 1}/${maxRetries})`);
