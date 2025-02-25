@@ -534,9 +534,11 @@
     lastState: null,
     editorInstance: null,
     lastEditorCheck: 0,
-    checkInterval: 500,
-    debugHistory: [], // Track debug history
-    maxDebugHistory: 20, // Reduced from 50 to 20 to keep only recent issues
+    checkInterval: 300, // Reduced from 500 to 300 for faster checks
+    debugHistory: [],
+    maxDebugHistory: 20,
+    initializationAttempts: 0,
+    maxInitAttempts: 100, // Increased from 50 to 100 for more attempts
 
     // Helper to log debug info - only for critical editor issues
     logDebug: (message, data = {}, isError = false) => {
@@ -564,6 +566,77 @@
       }
     },
 
+    // Check if we're in an iframe and try to access parent if needed
+    getWindowContext: () => {
+      try {
+        // If we're in an iframe, try to access parent window's monaco
+        if (window !== window.parent && window.parent.monaco) {
+          HackerRankBridge.logDebug('Found Monaco in parent window');
+          return window.parent;
+        }
+      } catch (e) {
+        // Cross-origin access will fail, which is expected
+      }
+      return window;
+    },
+
+    // Find all possible Monaco editor instances in the page
+    findAllMonacoInstances: () => {
+      const instances = [];
+      try {
+        // Check standard Monaco location
+        if (window.monaco?.editor) {
+          const editors = window.monaco.editor.getEditors();
+          if (editors && editors.length > 0) {
+            instances.push(...editors);
+          }
+        }
+
+        // Check for Monaco in iframes
+        const iframes = document.querySelectorAll('iframe');
+        for (const iframe of iframes) {
+          try {
+            const iframeWindow = iframe.contentWindow;
+            if (iframeWindow.monaco?.editor) {
+              const editors = iframeWindow.monaco.editor.getEditors();
+              if (editors && editors.length > 0) {
+                instances.push(...editors);
+              }
+            }
+          } catch (e) {
+            // Cross-origin access will fail, which is expected
+          }
+        }
+
+        // Check HackerRank specific locations
+        const hrLocations = [
+          'hackerrank_r_krackjack',
+          '_monaco',
+          'monaco',
+          'MonacoEnvironment',
+          'MonacoEditor'
+        ];
+
+        for (const loc of hrLocations) {
+          try {
+            const value = window[loc];
+            if (value?.editor?.getEditors && typeof value.editor.getEditors === 'function') {
+              const editors = value.editor.getEditors();
+              if (editors && editors.length > 0) {
+                instances.push(...editors);
+              }
+            }
+          } catch (e) {
+            continue;
+          }
+        }
+      } catch (e) {
+        HackerRankBridge.logDebug('Error finding Monaco instances', { error: e.message }, true);
+      }
+
+      return instances;
+    },
+
     getEditor: () => {
       try {
         const now = Date.now();
@@ -572,10 +645,36 @@
         }
         HackerRankBridge.lastEditorCheck = now;
 
-        // First check for HackerRank's specific editor container
-        const editorContainer = document.querySelector('.hr-monaco-editor-wrapper');
+        // First check for cached instance
+        if (HackerRankBridge.editorInstance) {
+          try {
+            // Verify the instance is still valid
+            const value = HackerRankBridge.editorInstance.getValue();
+            if (value !== undefined) {
+              return HackerRankBridge.editorInstance;
+            }
+          } catch (e) {
+            HackerRankBridge.logDebug('Cached editor instance is invalid', { error: e.message }, true);
+            HackerRankBridge.editorInstance = null;
+          }
+        }
+
+        // Look for editor containers in order of specificity
+        const editorContainers = [
+          document.querySelector('.hr-monaco-editor-wrapper'),
+          document.querySelector('.hr-monaco-editor'),
+          document.querySelector('.monaco-editor-container'),
+          document.querySelector('.monaco-editor'),
+          document.querySelector('[class*="monaco"]'),
+          document.querySelector('[class*="editor"]')
+        ];
+
+        const editorContainer = editorContainers.find(container => container !== null);
         if (!editorContainer) {
-          HackerRankBridge.logDebug('No editor container found', {}, true);
+          HackerRankBridge.logDebug('No editor container found', {
+            containers: document.querySelectorAll('[class*="editor"]').length,
+            monacoElements: document.querySelectorAll('[class*="monaco"]').length
+          }, true);
           return null;
         }
 
@@ -583,7 +682,9 @@
         const currentState = {
           hasMonaco: !!window.monaco,
           hasEditor: !!window.monaco?.editor,
-          editorModels: window.monaco?.editor?.getModels()?.length || 0
+          editorModels: window.monaco?.editor?.getModels()?.length || 0,
+          containerFound: !!editorContainer,
+          containerClass: editorContainer?.className || ''
         };
 
         // Log only significant state changes
@@ -597,8 +698,10 @@
           HackerRankBridge.lastState = currentState;
         }
 
-        // Try to find Monaco in HackerRank's specific locations
-        const findMonacoInHackerRank = () => {
+        // Try to find Monaco in window context
+        const windowContext = HackerRankBridge.getWindowContext();
+        if (!windowContext.monaco) {
+          // Try to find Monaco in HackerRank's specific locations
           const hrLocations = [
             'hackerrank_r_krackjack',
             '_monaco',
@@ -609,106 +712,159 @@
 
           for (const loc of hrLocations) {
             try {
-              const value = window[loc];
-              if (value?.editor?.getEditors && typeof value.editor.getEditors === 'function') {
+              const value = windowContext[loc];
+              if (value?.editor) {
                 HackerRankBridge.logDebug(`Found Monaco in ${loc}`);
-                return value;
+                windowContext.monaco = value;
+                break;
               }
             } catch (e) {
               continue;
             }
           }
-
-          if (editorContainer) {
-            const editorInstance = editorContainer.querySelector('.monaco-editor');
-            if (editorInstance && window.monaco) {
-              HackerRankBridge.logDebug('Found Monaco in editor wrapper');
-              return window.monaco;
-            }
-          }
-
-          return null;
-        };
-
-        // Try to get Monaco from HackerRank locations first
-        if (!window.monaco) {
-          const monaco = findMonacoInHackerRank();
-          if (monaco) {
-            window.monaco = monaco;
-          }
         }
 
-        // Try to get Monaco editor directly
-        if (window.monaco?.editor) {
-          const editors = window.monaco.editor.getEditors();
-          if (editors?.length === 0) {
-            HackerRankBridge.logDebug('No Monaco editors found', {}, true);
+        // Find all Monaco instances
+        const allInstances = HackerRankBridge.findAllMonacoInstances();
+        if (allInstances.length > 0) {
+          HackerRankBridge.logDebug(`Found ${allInstances.length} Monaco editor instances`);
+          
+          // Prefer the instance in our container
+          let selectedEditor = allInstances[0]; // Default to first instance
+          
+          // Try to find the editor instance that's in our container
+          for (const instance of allInstances) {
+            if (editorContainer.contains(instance._domElement) || 
+                editorContainer.querySelector(`[data-uri="${instance.getModel()?.uri?.toString()}"]`)) {
+              selectedEditor = instance;
+              break;
+            }
           }
+          
+          const model = selectedEditor.getModel();
+          if (model) {
+            HackerRankBridge.logDebug('Created editor instance');
 
-          if (editors?.length > 0) {
-            const editor = editors[0];
-            const model = editor.getModel();
-            if (model) {
-              HackerRankBridge.logDebug('Created editor instance');
+            HackerRankBridge.editorInstance = {
+              type: 'monaco',
+              editor: selectedEditor,
+              model: model,
+              element: editorContainer,
+              getValue: () => {
+                try {
+                  return model.getValue() || '';
+                } catch (e) {
+                  HackerRankBridge.logDebug('Error getting editor value', {
+                    error: e.message
+                  }, true);
+                  return '';
+                }
+              },
+              setValue: (value) => {
+                try {
+                  // Force editor to be ready
+                  selectedEditor.focus();
+                  selectedEditor.layout();
 
-              HackerRankBridge.editorInstance = {
-                type: 'monaco',
-                editor: editor,
-                model: model,
-                element: editorContainer,
-                getValue: () => {
-                  try {
-                    return model.getValue() || '';
-                  } catch (e) {
-                    HackerRankBridge.logDebug('Error getting editor value', {
-                      error: e.message
-                    }, true);
-                    return '';
-                  }
-                },
-                setValue: (value) => {
-                  try {
-                    // Force editor to be ready
-                    editor.focus();
-                    editor.layout();
+                  // Use atomic operation to update content
+                  model.pushEditOperations(
+                    [],
+                    [{
+                      range: model.getFullModelRange(),
+                      text: value
+                    }],
+                    () => null
+                  );
 
-                    // Use atomic operation to update content
-                    model.pushEditOperations(
-                      [],
-                      [{
-                        range: model.getFullModelRange(),
-                        text: value
-                      }],
-                      () => null
-                    );
+                  // Update cursor and scroll
+                  selectedEditor.setPosition({ lineNumber: 1, column: 1 });
+                  selectedEditor.revealLine(1);
 
-                    // Update cursor and scroll
-                    editor.setPosition({ lineNumber: 1, column: 1 });
-                    editor.revealLine(1);
+                  // Force layout refresh
+                  requestAnimationFrame(() => selectedEditor.layout());
 
-                    // Force layout refresh
-                    requestAnimationFrame(() => editor.layout());
-
-                    // Verify the change
-                    const newValue = model.getValue();
-                    const success = newValue === value;
-                    if (!success) {
-                      HackerRankBridge.logDebug('Failed to update editor value', {
+                  // Verify the change
+                  const newValue = model.getValue();
+                  const success = newValue === value;
+                  if (!success) {
+                    // Try alternative approach if first method failed
+                    model.setValue(value);
+                    const retryValue = model.getValue();
+                    const retrySuccess = retryValue === value;
+                    
+                    if (!retrySuccess) {
+                      HackerRankBridge.logDebug('Failed to update editor value after retry', {
                         expectedLength: value.length,
-                        actualLength: newValue.length
+                        actualLength: retryValue.length,
+                        expectedFirstLine: value.split('\n')[0],
+                        actualFirstLine: retryValue.split('\n')[0]
                       }, true);
                     }
-                    return success;
-                  } catch (e) {
-                    HackerRankBridge.logDebug('Error setting editor value', {
-                      error: e.message
+                    
+                    return retrySuccess;
+                  }
+                  return true;
+                } catch (e) {
+                  HackerRankBridge.logDebug('Error setting editor value', {
+                    error: e.message
+                  }, true);
+                  
+                  // Try a fallback approach
+                  try {
+                    model.setValue(value);
+                    return true;
+                  } catch (e2) {
+                    HackerRankBridge.logDebug('Fallback setValue also failed', {
+                      error: e2.message
                     }, true);
                     return false;
                   }
                 }
-              };
-              return HackerRankBridge.editorInstance;
-            }
+              }
+            };
+            return HackerRankBridge.editorInstance;
+          }
+        }
+
+        // If we still don't have an editor, check for Monaco editor directly in the DOM
+        const monacoEditorElement = editorContainer.querySelector('.monaco-editor');
+        if (monacoEditorElement && windowContext.monaco?.editor) {
+          // Try to create a new editor instance
+          try {
+            const textModel = windowContext.monaco.editor.createModel('', 'javascript');
+            const editor = windowContext.monaco.editor.create(monacoEditorElement, {
+              model: textModel,
+              automaticLayout: true
+            });
+            
+            HackerRankBridge.logDebug('Created new Monaco editor instance');
+            
+            HackerRankBridge.editorInstance = {
+              type: 'monaco',
+              editor: editor,
+              model: textModel,
+              element: editorContainer,
+              getValue: () => {
+                try {
+                  return textModel.getValue() || '';
+                } catch (e) {
+                  return '';
+                }
+              },
+              setValue: (value) => {
+                try {
+                  textModel.setValue(value);
+                  return true;
+                } catch (e) {
+                  return false;
+                }
+              }
+            };
+            return HackerRankBridge.editorInstance;
+          } catch (e) {
+            HackerRankBridge.logDebug('Failed to create new editor instance', {
+              error: e.message
+            }, true);
           }
         }
 
@@ -726,18 +882,23 @@
 
     initialize: () => {
       // Function to wait for Monaco
-      const waitForMonaco = (callback, maxAttempts = 50) => {
-        let attempts = 0;
+      const waitForMonaco = (callback, maxAttempts = HackerRankBridge.maxInitAttempts) => {
+        HackerRankBridge.initializationAttempts = 0;
         const check = () => {
-          attempts++;
+          HackerRankBridge.initializationAttempts++;
           const editor = HackerRankBridge.getEditor();
           if (editor) {
+            HackerRankBridge.logDebug('Editor initialized successfully', {
+              attempts: HackerRankBridge.initializationAttempts
+            });
             callback(editor);
-          } else if (attempts < maxAttempts) {
-            setTimeout(check, 100);
+          } else if (HackerRankBridge.initializationAttempts < maxAttempts) {
+            // Exponential backoff with a cap
+            const delay = Math.min(100 * Math.pow(1.1, Math.min(HackerRankBridge.initializationAttempts, 20)), 500);
+            setTimeout(check, delay);
           } else {
             HackerRankBridge.logDebug('Failed to initialize editor after max attempts', {
-              attempts
+              attempts: HackerRankBridge.initializationAttempts
             }, true);
           }
         };

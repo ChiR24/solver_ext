@@ -1691,8 +1691,21 @@ const waitForEditor = async () => {
   // For HackerRank, use the specialized bridge
   if (window.location.hostname.includes('hackerrank.com')) {
     console.log('Using HackerRank editor bridge');
-    const maxRetries = 5; // Reduce from 30 to 5
+    const maxRetries = 10; // Increased from 5 to 10
     const retryDelay = 1000;
+
+    // Ensure the bridge is initialized
+    if (!window.HackerRankBridge) {
+      console.error('HackerRank bridge not initialized, attempting to initialize');
+      try {
+        // Try to initialize the bridge if it's not already done
+        if (typeof initializeEditorBridges === 'function') {
+          initializeEditorBridges();
+        }
+      } catch (e) {
+        console.error('Failed to initialize editor bridges:', e);
+      }
+    }
 
     let retryCount = 0;
     while (retryCount < maxRetries) {
@@ -1704,7 +1717,16 @@ const waitForEditor = async () => {
           textarea: editor.element,
           setValue: async (value) => {
             try {
-              return editor.setValue(value);
+              // Try up to 3 times to set the value
+              for (let attempt = 0; attempt < 3; attempt++) {
+                const success = editor.setValue(value);
+                if (success) {
+                  return true;
+                }
+                console.log(`Editor setValue attempt ${attempt + 1} failed, retrying...`);
+                await new Promise(resolve => setTimeout(resolve, 500));
+              }
+              return false;
             } catch (e) {
               console.error('Error setting editor value:', e);
               return false;
@@ -1716,6 +1738,46 @@ const waitForEditor = async () => {
       console.log(`Waiting for HackerRank editor (attempt ${retryCount + 1}/${maxRetries})`);
       retryCount++;
       await new Promise(resolve => setTimeout(resolve, retryDelay));
+    }
+
+    // Last resort: try to find any Monaco editor on the page
+    try {
+      console.log('Attempting to find any Monaco editor as last resort');
+      
+      // Look for Monaco editor elements
+      const monacoElements = document.querySelectorAll('.monaco-editor');
+      if (monacoElements.length > 0) {
+        console.log(`Found ${monacoElements.length} Monaco editor elements`);
+        
+        // Try to find a Monaco editor instance
+        if (window.monaco?.editor) {
+          const editors = window.monaco.editor.getEditors();
+          if (editors?.length > 0) {
+            const editor = editors[0];
+            console.log('Found Monaco editor instance as fallback');
+            
+            return {
+              container: monacoElements[0],
+              textarea: monacoElements[0].querySelector('.inputarea'),
+              setValue: async (value) => {
+                try {
+                  const model = editor.getModel();
+                  if (model) {
+                    model.setValue(value);
+                    return true;
+                  }
+                  return false;
+                } catch (e) {
+                  console.error('Error setting editor value:', e);
+                  return false;
+                }
+              }
+            };
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Error in last resort editor detection:', e);
     }
 
     throw new Error('Could not find HackerRank editor after ' + maxRetries + ' attempts');
@@ -1882,51 +1944,87 @@ const applyCodeSolution = async (solution) => {
       cleanSolution = matches ? matches[1].trim() : solution.trim();
     }
 
-    // Get editor and update content with minimal retry
-    const maxRetries = 1; // Reduce from 3 to 1
+    // Get editor and update content with more retries for HackerRank
+    const maxRetries = window.location.hostname.includes('hackerrank.com') ? 3 : 1;
     const retryDelay = 1000;
 
     let retryCount = 0;
+    let lastError = null;
+
     while (retryCount < maxRetries) {
       try {
-        const { textarea, setValue } = await waitForEditor();
+        // Wait for editor with a timeout
+        const editorPromise = waitForEditor();
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Editor wait timeout')), 10000)
+        );
+        
+        const { textarea, setValue } = await Promise.race([editorPromise, timeoutPromise]);
 
         // Focus and prepare
-        textarea.focus();
+        if (textarea) {
+          try {
+            textarea.focus();
+          } catch (e) {
+            console.warn('Could not focus editor textarea:', e);
+          }
+        }
 
         // Set the value through the bridge
+        console.log(`Attempting to set editor value (attempt ${retryCount + 1}/${maxRetries})`);
         const success = await setValue(cleanSolution);
+        
         if (success) {
-          // Trigger necessary events
-          const events = [
-            new InputEvent('beforeinput', {
-              bubbles: true,
-              cancelable: true,
-              inputType: 'insertText',
-              data: cleanSolution
-            }),
-            new InputEvent('input', {
-              bubbles: true,
-              cancelable: true,
-              inputType: 'insertText',
-              data: cleanSolution
-            }),
-            new Event('change', { bubbles: true }),
-            new KeyboardEvent('keydown', { bubbles: true, key: 'Enter' }),
-            new KeyboardEvent('keyup', { bubbles: true, key: 'Enter' })
-          ];
+          console.log('Successfully set editor value');
+          
+          // Trigger necessary events if textarea exists
+          if (textarea && textarea.dispatchEvent) {
+            try {
+              const events = [
+                new InputEvent('beforeinput', {
+                  bubbles: true,
+                  cancelable: true,
+                  inputType: 'insertText',
+                  data: cleanSolution
+                }),
+                new InputEvent('input', {
+                  bubbles: true,
+                  cancelable: true,
+                  inputType: 'insertText',
+                  data: cleanSolution
+                }),
+                new Event('change', { bubbles: true }),
+                new KeyboardEvent('keydown', { bubbles: true, key: 'Enter' }),
+                new KeyboardEvent('keyup', { bubbles: true, key: 'Enter' })
+              ];
 
-          events.forEach(event => textarea.dispatchEvent(event));
+              events.forEach(event => {
+                try {
+                  textarea.dispatchEvent(event);
+                } catch (e) {
+                  console.warn('Error dispatching event:', e);
+                }
+              });
+            } catch (e) {
+              console.warn('Error creating or dispatching events:', e);
+            }
+          }
+          
           return true;
         }
 
+        console.warn(`Failed to set editor value on attempt ${retryCount + 1}`);
         retryCount++;
+        
         if (retryCount < maxRetries) {
           console.log(`Retrying editor update (${retryCount}/${maxRetries})`);
           await new Promise(resolve => setTimeout(resolve, retryDelay));
           continue;
         }
       } catch (error) {
+        lastError = error;
+        console.error(`Error on attempt ${retryCount + 1}:`, error);
+        
         retryCount++;
         if (retryCount < maxRetries) {
           console.log(`Retrying after error (${retryCount}/${maxRetries}):`, error);
@@ -1936,10 +2034,63 @@ const applyCodeSolution = async (solution) => {
       }
     }
 
-    throw new Error('Failed to update editor content after ' + maxRetries + ' attempt');
+    // Special handling for HackerRank as a last resort
+    if (window.location.hostname.includes('hackerrank.com')) {
+      console.log('Attempting direct Monaco manipulation as last resort');
+      
+      try {
+        // Try to directly manipulate Monaco if available
+        if (window.monaco?.editor) {
+          const editors = window.monaco.editor.getEditors();
+          if (editors?.length > 0) {
+            const editor = editors[0];
+            const model = editor.getModel();
+            
+            if (model) {
+              console.log('Found Monaco model, setting value directly');
+              model.setValue(cleanSolution);
+              return true;
+            }
+          }
+        }
+        
+        // Try to find the editor in HackerRank's specific locations
+        const hrLocations = [
+          'hackerrank_r_krackjack',
+          '_monaco',
+          'monaco',
+          'MonacoEnvironment',
+          'MonacoEditor'
+        ];
 
+        for (const loc of hrLocations) {
+          try {
+            const value = window[loc];
+            if (value?.editor?.getEditors && typeof value.editor.getEditors === 'function') {
+              const editors = value.editor.getEditors();
+              if (editors?.length > 0) {
+                const model = editors[0].getModel();
+                if (model) {
+                  console.log(`Found Monaco in ${loc}, setting value directly`);
+                  model.setValue(cleanSolution);
+                  return true;
+                }
+              }
+            }
+          } catch (e) {
+            continue;
+          }
+        }
+      } catch (e) {
+        console.error('Last resort editor manipulation failed:', e);
+      }
+    }
+
+    throw new Error('Failed to update editor content after ' + maxRetries + ' attempts' + 
+                   (lastError ? ': ' + lastError.message : ''));
   } catch (error) {
-    throw new Error(`Failed to apply solution: ${error.message}`);
+    console.error('Error in applyCodeSolution:', error);
+    throw error;
   }
 };
 
