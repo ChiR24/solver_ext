@@ -2353,19 +2353,16 @@ const applyCodeSolution = async (solution) => {
       cleanSolution = matches ? matches[1].trim() : solution.trim();
     }
 
-    // Get editor and update content with more retries for HackerRank
-    const maxRetries = 3; // Set to 3 for all platforms
+    // Get editor and update content with a universal approach
+    const maxRetries = 3;
     const retryDelay = 1000;
 
     let retryCount = 0;
     let lastError = null;
 
-    // Determine platform type
+    // Determine platform type for logging purposes
     const hostname = window.location.hostname;
-    const isGeeksForGeeks = hostname.includes('geeksforgeeks.org');
-    const isHackerRank = hostname.includes('hackerrank.com');
-    const isLeetCode = hostname.includes('leetcode.com');
-    const isAtCoder = hostname.includes('atcoder.jp');
+    const platform = getPlatformType(hostname);
 
     // For tracking if the solution contains a solution class/function
     let hasSolutionClass = false;
@@ -2380,210 +2377,35 @@ const applyCodeSolution = async (solution) => {
       }
     }
 
-    // Special handler for AtCoder
-    if (isAtCoder) {
-      console.log('Using AtCoder-specific editor handling');
-      return await applyAtCoderSolution(cleanSolution);
-    }
-
+    console.log(`DEBUG - Applying solution for ${platform} platform`);
+    
+    // Universal approach for all platforms
     while (retryCount < maxRetries) {
       try {
-        // Wait for editor with a timeout
-        const editorPromise = waitForEditor();
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Editor wait timeout')), 10000)
-        );
-        
-        const { textarea, setValue, getValue } = await Promise.race([editorPromise, timeoutPromise]);
-
-        // Focus the editor
-        if (textarea) {
-          try {
-            textarea.focus();
-          } catch (e) {
-            console.warn('Could not focus editor textarea:', e);
-          }
-        }
-
-        // For GeeksForGeeks and other platforms with templates
-        if (isGeeksForGeeks || isLeetCode) {
-          try {
-            // Get current code from editor
-            const currentCode = typeof getValue === 'function' ? await getValue() : '';
-            
-            if (currentCode && hasSolutionClass) {
-              console.log('Template-aware solution application');
-              
-              // Find the Solution class in the current code
-              const currentSolutionMatch = currentCode.match(/class\s+Solution[^{]*{([^}]*)}/);
-              if (currentSolutionMatch) {
-                // Only replace the Solution class implementation
-                let newCode;
-                
-                // Check if the template uses a different format (e.g., Python's colon syntax)
-                if (currentCode.includes('class Solution:')) {
-                  newCode = currentCode.replace(
-                    /class\s+Solution\s*:([^#]*)(?:#|$)/,
-                    `class Solution:${solutionClassContent}\n`
-                  );
-                } else {
-                  newCode = currentCode.replace(
-                    /class\s+Solution[^{]*{[^}]*}/,
-                    `class Solution${currentSolutionMatch[0].split('{')[0].split('class Solution')[1]}{${solutionClassContent}}`
-                  );
-                }
-                
-                // Apply the modified code
-                const success = await setValue(newCode);
-                if (success) {
-                  console.log('Successfully applied template-aware solution');
-                  return true;
-                }
-              }
-              
-              // For GFG driver code format
-              const driverCodePattern = /\/\/\{\s*Driver\s+Code\s+Starts[\s\S]*?\/\/\s*\}\s*Driver\s+Code\s+Ends/i;
-              if (driverCodePattern.test(currentCode)) {
-                // Extract driver code sections
-                const match = currentCode.match(/([\s\S]*class\s+Solution[^{]*{)([^}]*)(}[\s\S]*)/);
-                if (match) {
-                  const [fullMatch, prefix, solutionPlaceholder, suffix] = match;
-                  
-                  // Extract the solution part from cleanSolution
-                  const solutionMatch = cleanSolution.match(/class\s+Solution[^{]*{([^}]*)}/);
-                  const solutionContent = solutionMatch ? solutionMatch[1] : '';
-                  
-                  // Create new code with solution inserted between prefix and suffix
-                  const newCode = `${prefix}${solutionContent}${suffix}`;
-                  
-                  // Apply the modified code
-                  const success = await setValue(newCode);
-                  if (success) {
-                    console.log('Successfully applied solution with Driver Code format');
-                    return true;
-                  }
-                }
-              }
-            }
-          } catch (e) {
-            console.warn('Template-aware application failed:', e);
-            // Fall back to normal application if template awareness fails
-          }
-        }
-
-        // Standard approach (fallback)
-        console.log(`Attempting to set editor value (attempt ${retryCount + 1}/${maxRetries})`);
-        const success = await setValue(cleanSolution);
-        
-        if (success) {
-          console.log('Successfully set editor value using standard approach');
-          
-          // Trigger necessary events if textarea exists
-          if (textarea && textarea.dispatchEvent) {
-            try {
-              const events = [
-                new InputEvent('beforeinput', {
-                  bubbles: true,
-                  cancelable: true,
-                  inputType: 'insertText',
-                  data: cleanSolution
-                }),
-                new InputEvent('input', {
-                  bubbles: true,
-                  cancelable: true,
-                  inputType: 'insertText',
-                  data: cleanSolution
-                }),
-                new Event('change', { bubbles: true }),
-                new KeyboardEvent('keydown', { bubbles: true, key: 'Enter' }),
-                new KeyboardEvent('keyup', { bubbles: true, key: 'Enter' })
-              ];
-
-              events.forEach(event => {
-                try {
-                  textarea.dispatchEvent(event);
-                } catch (e) {
-                  console.warn('Error dispatching event:', e);
-                }
-              });
-            } catch (e) {
-              console.warn('Error creating or dispatching events:', e);
-            }
-          }
-          
+        // Try universal editor detection and handling
+        const result = await applyUniversalSolution(cleanSolution, platform, hasSolutionClass, solutionClassContent);
+        if (result) {
+          console.log(`DEBUG - Successfully applied solution using universal approach`);
           return true;
         }
-
-        console.warn(`Failed to set editor value on attempt ${retryCount + 1}`);
-        retryCount++;
         
+        // If universal approach fails, increment retry count
+        retryCount++;
         if (retryCount < maxRetries) {
-          console.log(`Retrying editor update (${retryCount}/${maxRetries})`);
+          console.log(`DEBUG - Retrying editor update (${retryCount}/${maxRetries})`);
           await new Promise(resolve => setTimeout(resolve, retryDelay));
           continue;
         }
       } catch (error) {
         lastError = error;
-        console.error(`Error on attempt ${retryCount + 1}:`, error);
+        console.error(`ERROR - Attempt ${retryCount + 1} failed:`, error);
         
         retryCount++;
         if (retryCount < maxRetries) {
-          console.log(`Retrying after error (${retryCount}/${maxRetries}):`, error);
+          console.log(`DEBUG - Retrying after error (${retryCount}/${maxRetries}):`, error);
           await new Promise(resolve => setTimeout(resolve, retryDelay));
           continue;
         }
-      }
-    }
-
-    // Special handling for HackerRank as a last resort
-    if (isHackerRank) {
-      console.log('Attempting direct Monaco manipulation as last resort');
-      
-      try {
-        // Try to directly manipulate Monaco if available
-        if (window.monaco?.editor) {
-          const editors = window.monaco.editor.getEditors();
-          if (editors?.length > 0) {
-            const editor = editors[0];
-            const model = editor.getModel();
-            
-            if (model) {
-              console.log('Found Monaco model, setting value directly');
-              model.setValue(cleanSolution);
-              return true;
-            }
-          }
-        }
-        
-        // Try to find the editor in HackerRank's specific locations
-        const hrLocations = [
-          'hackerrank_r_krackjack',
-          '_monaco',
-          'monaco',
-          'MonacoEnvironment',
-          'MonacoEditor'
-        ];
-
-        for (const loc of hrLocations) {
-          try {
-            const value = window[loc];
-            if (value?.editor?.getEditors && typeof value.editor.getEditors === 'function') {
-              const editors = value.editor.getEditors();
-              if (editors?.length > 0) {
-                const model = editors[0].getModel();
-                if (model) {
-                  console.log(`Found Monaco in ${loc}, setting value directly`);
-                  model.setValue(cleanSolution);
-                  return true;
-                }
-              }
-            }
-          } catch (e) {
-            continue;
-          }
-        }
-      } catch (e) {
-        console.error('Last resort editor manipulation failed:', e);
       }
     }
 
@@ -2592,6 +2414,624 @@ const applyCodeSolution = async (solution) => {
   } catch (error) {
     console.error('Error in applyCodeSolution:', error);
     throw error;
+  }
+};
+
+// Identify platform type from hostname
+const getPlatformType = (hostname) => {
+  if (hostname.includes('leetcode.com')) return 'leetcode';
+  if (hostname.includes('hackerrank.com')) return 'hackerrank';
+  if (hostname.includes('codewars.com')) return 'codewars';
+  if (hostname.includes('hackerearth.com')) return 'hackerearth';
+  if (hostname.includes('codeforces.com')) return 'codeforces';
+  if (hostname.includes('atcoder.jp')) return 'atcoder';
+  if (hostname.includes('spoj.com')) return 'spoj';
+  if (hostname.includes('geeksforgeeks.org')) return 'geeksforgeeks';
+  if (hostname.includes('interviewbit.com')) return 'interviewbit';
+  return 'unknown';
+};
+
+// Universal solution application function
+const applyUniversalSolution = async (solution, platform, hasSolutionClass = false, solutionClassContent = '') => {
+  console.log(`DEBUG - Using universal editor approach for ${platform}`);
+  
+  // First try template-aware solution for platforms with templates
+  if (hasSolutionClass && ['leetcode', 'geeksforgeeks'].includes(platform)) {
+    try {
+      const success = await applyTemplateSolution(solution, solutionClassContent);
+      if (success) {
+        console.log('DEBUG - Successfully applied template-aware solution');
+        return true;
+      }
+    } catch (e) {
+      console.warn('DEBUG - Template-aware application failed:', e);
+      // Fall back to other methods if template approach fails
+    }
+  }
+  
+  // Try to find all possible editors in the page
+  const editorInfo = await detectEditors();
+  if (!editorInfo) {
+    console.error('DEBUG - No editors found in the page');
+    return false;
+  }
+  
+  // Try each detected editor type
+  for (const editor of editorInfo) {
+    try {
+      const success = await setEditorValue(editor, solution);
+      if (success) {
+        console.log(`DEBUG - Successfully set value in ${editor.type} editor`);
+        return true;
+      }
+    } catch (e) {
+      console.warn(`DEBUG - Failed to set value in ${editor.type} editor:`, e);
+      // Continue to try other editors
+    }
+  }
+  
+  // If all direct approaches fail, try script injection as last resort
+  return await injectEditorScript(solution);
+};
+
+// Detect all available editors on the page
+const detectEditors = async () => {
+  const editors = [];
+  
+  // 1. Try Monaco editor
+  try {
+    // Check for global Monaco
+    if (window.monaco?.editor) {
+      const monacoEditors = window.monaco.editor.getEditors();
+      if (monacoEditors.length > 0) {
+        editors.push({
+          type: 'monaco',
+          instance: monacoEditors[0],
+          element: document.querySelector('.monaco-editor'),
+          model: monacoEditors[0].getModel()
+        });
+      }
+    }
+    
+    // Check for Monaco editor elements even if global variable isn't accessible
+    const monacoElements = document.querySelectorAll('.monaco-editor');
+    if (monacoElements.length > 0 && editors.findIndex(e => e.type === 'monaco') === -1) {
+      editors.push({
+        type: 'monaco',
+        element: monacoElements[0],
+        directAccess: false
+      });
+    }
+  } catch (e) {
+    console.warn('DEBUG - Error detecting Monaco editor:', e);
+  }
+  
+  // 2. Try Ace editor
+  try {
+    const aceElements = document.querySelectorAll('.ace_editor');
+    if (aceElements.length > 0 && window.ace?.edit) {
+      try {
+        const aceEditor = window.ace.edit(aceElements[0]);
+        editors.push({
+          type: 'ace',
+          instance: aceEditor,
+          element: aceElements[0]
+        });
+      } catch (e) {
+        // Ace editor exists but not properly initialized
+        editors.push({
+          type: 'ace',
+          element: aceElements[0],
+          directAccess: false
+        });
+      }
+    }
+  } catch (e) {
+    console.warn('DEBUG - Error detecting Ace editor:', e);
+  }
+  
+  // 3. Try CodeMirror
+  try {
+    const cmElements = document.querySelectorAll('.CodeMirror');
+    for (const element of cmElements) {
+      if (element.CodeMirror) {
+        editors.push({
+          type: 'codemirror',
+          instance: element.CodeMirror,
+          element: element
+        });
+        break;
+      }
+    }
+  } catch (e) {
+    console.warn('DEBUG - Error detecting CodeMirror:', e);
+  }
+  
+  // 4. Try plain textarea or contenteditable elements
+  try {
+    // Check for textareas
+    const textareas = document.querySelectorAll('textarea[class*="editor"], textarea.code, textarea[class*="code"]');
+    if (textareas.length > 0) {
+      editors.push({
+        type: 'textarea',
+        element: textareas[0],
+        directAccess: true
+      });
+    }
+    
+    // Check for contenteditable divs
+    const editableDivs = document.querySelectorAll('[contenteditable="true"]');
+    if (editableDivs.length > 0) {
+      editors.push({
+        type: 'contenteditable',
+        element: editableDivs[0],
+        directAccess: true
+      });
+    }
+    
+    // Check for AtCoder specific plain editor
+    const plainEditors = document.querySelectorAll('.plain, [class="plain"]');
+    if (plainEditors.length > 0) {
+      editors.push({
+        type: 'plain',
+        element: plainEditors[0],
+        directAccess: true
+      });
+    }
+    
+    // Check for AtCoder prettyprint editor
+    const prettyEditors = document.querySelectorAll('pre.prettyprint');
+    if (prettyEditors.length > 0) {
+      editors.push({
+        type: 'prettyprint',
+        element: prettyEditors[0],
+        directAccess: true
+      });
+    }
+  } catch (e) {
+    console.warn('DEBUG - Error detecting plain editors:', e);
+  }
+  
+  // 5. Check for generic code elements
+  try {
+    if (editors.length === 0) {
+      const codeElements = document.querySelectorAll('#editor, [class*="editor"], [class*="code-area"]');
+      if (codeElements.length > 0) {
+        editors.push({
+          type: 'generic',
+          element: codeElements[0],
+          directAccess: false
+        });
+      }
+    }
+  } catch (e) {
+    console.warn('DEBUG - Error detecting generic editors:', e);
+  }
+  
+  return editors.length > 0 ? editors : null;
+};
+
+// Set value in the detected editor
+const setEditorValue = async (editor, value) => {
+  try {
+    switch (editor.type) {
+      case 'monaco':
+        if (editor.instance && editor.model) {
+          try {
+            // Use atomic operation to update content
+            editor.model.pushEditOperations(
+              [],
+              [{
+                range: editor.model.getFullModelRange(),
+                text: value
+              }],
+              () => null
+            );
+            
+            // Update cursor and scroll if possible
+            if (editor.instance.setPosition && editor.instance.revealLine) {
+              editor.instance.setPosition({ lineNumber: 1, column: 1 });
+              editor.instance.revealLine(1);
+            }
+            
+            // Force layout refresh
+            if (editor.instance.layout) {
+              requestAnimationFrame(() => editor.instance.layout());
+            }
+            
+            return true;
+          } catch (e) {
+            console.warn('Monaco pushEditOperations failed, trying setValue', e);
+            editor.model.setValue(value);
+            return true;
+          }
+        } else if (editor.element) {
+          // Try to access editor through DOM
+          const textArea = editor.element.querySelector('.inputarea, textarea');
+          if (textArea) {
+            textArea.value = value;
+            textArea.dispatchEvent(new Event('input', { bubbles: true }));
+            textArea.dispatchEvent(new Event('change', { bubbles: true }));
+            return true;
+          }
+          return false;
+        }
+        return false;
+      
+      case 'ace':
+        if (editor.instance && typeof editor.instance.setValue === 'function') {
+          editor.instance.setValue(value, -1); // -1 positions cursor at start
+          editor.instance.clearSelection();
+          return true;
+        } else if (editor.element && window.ace?.edit) {
+          try {
+            const aceEditor = window.ace.edit(editor.element);
+            aceEditor.setValue(value, -1);
+            aceEditor.clearSelection();
+            return true;
+          } catch (e) {
+            console.warn('Error accessing Ace editor directly:', e);
+            return false;
+          }
+        }
+        return false;
+      
+      case 'codemirror':
+        if (editor.instance && typeof editor.instance.setValue === 'function') {
+          editor.instance.setValue(value);
+          editor.instance.focus();
+          return true;
+        }
+        return false;
+      
+      case 'textarea':
+        editor.element.value = value;
+        editor.element.dispatchEvent(new Event('input', { bubbles: true }));
+        editor.element.dispatchEvent(new Event('change', { bubbles: true }));
+        return true;
+      
+      case 'contenteditable':
+        editor.element.textContent = value;
+        editor.element.dispatchEvent(new Event('input', { bubbles: true }));
+        return true;
+      
+      case 'plain':
+        // For AtCoder's plain editor
+        const plainTextarea = editor.element.querySelector('textarea');
+        if (plainTextarea) {
+          plainTextarea.value = value;
+          plainTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+          plainTextarea.dispatchEvent(new Event('change', { bubbles: true }));
+        } else {
+          editor.element.textContent = value;
+          editor.element.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        return true;
+      
+      case 'prettyprint':
+        // For AtCoder's prettyprint editor
+        const prettyInput = editor.element.querySelector('textarea, input');
+        if (prettyInput) {
+          prettyInput.value = value;
+          prettyInput.dispatchEvent(new Event('input', { bubbles: true }));
+          prettyInput.dispatchEvent(new Event('change', { bubbles: true }));
+        } else {
+          editor.element.textContent = value;
+          editor.element.dispatchEvent(new Event('input', { bubbles: true }));
+          
+          // Try to find and update any hidden inputs that might be associated
+          const hiddenInputs = document.querySelectorAll('input[type="hidden"][name*="source"], input[type="hidden"][name*="code"]');
+          for (const input of hiddenInputs) {
+            input.value = value;
+          }
+        }
+        return true;
+      
+      case 'generic':
+        // Try various approaches with the generic element
+        const textarea = editor.element.querySelector('textarea');
+        if (textarea) {
+          textarea.value = value;
+          textarea.dispatchEvent(new Event('input', { bubbles: true }));
+          textarea.dispatchEvent(new Event('change', { bubbles: true }));
+          return true;
+        }
+        
+        const editableDiv = editor.element.querySelector('[contenteditable="true"]');
+        if (editableDiv) {
+          editableDiv.textContent = value;
+          editableDiv.dispatchEvent(new Event('input', { bubbles: true }));
+          return true;
+        }
+        
+        const preTag = editor.element.querySelector('pre');
+        if (preTag) {
+          preTag.textContent = value;
+          return true;
+        }
+        
+        return false;
+      
+      default:
+        return false;
+    }
+  } catch (e) {
+    console.error(`Error setting value in ${editor.type} editor:`, e);
+    return false;
+  }
+};
+
+// Apply template-aware solution (for LeetCode and GeeksForGeeks)
+const applyTemplateSolution = async (solution, solutionClassContent) => {
+  try {
+    // Get current code from any available editor
+    const editors = await detectEditors();
+    if (!editors) {
+      return false;
+    }
+    
+    // Try to get current code
+    let currentCode = '';
+    for (const editor of editors) {
+      try {
+        switch (editor.type) {
+          case 'monaco':
+            if (editor.instance && editor.model) {
+              currentCode = editor.model.getValue();
+            }
+            break;
+          case 'ace':
+            if (editor.instance && typeof editor.instance.getValue === 'function') {
+              currentCode = editor.instance.getValue();
+            }
+            break;
+          case 'codemirror':
+            if (editor.instance && typeof editor.instance.getValue === 'function') {
+              currentCode = editor.instance.getValue();
+            }
+            break;
+          case 'textarea':
+            currentCode = editor.element.value;
+            break;
+          case 'contenteditable':
+            currentCode = editor.element.textContent;
+            break;
+        }
+        
+        if (currentCode) break;
+      } catch (e) {
+        console.warn(`Error getting value from ${editor.type} editor:`, e);
+      }
+    }
+    
+    if (!currentCode) {
+      return false;
+    }
+    
+    // Check if current code has a Solution class
+    if (currentCode.includes('class Solution')) {
+      // Find the Solution class in the current code
+      let newCode;
+      
+      // Check if the template uses Python's colon syntax
+      if (currentCode.includes('class Solution:')) {
+        newCode = currentCode.replace(
+          /class\s+Solution\s*:([^#]*)(?:#|$)/,
+          `class Solution:${solutionClassContent}\n`
+        );
+      } else {
+        // For other languages like Java, C++
+        const currentSolutionMatch = currentCode.match(/class\s+Solution[^{]*{([^}]*)}/);
+        if (currentSolutionMatch) {
+          newCode = currentCode.replace(
+            /class\s+Solution[^{]*{[^}]*}/,
+            `class Solution${currentSolutionMatch[0].split('{')[0].split('class Solution')[1]}{${solutionClassContent}}`
+          );
+        } else {
+          return false;
+        }
+      }
+      
+      // Apply the modified code
+      if (newCode) {
+        // Apply to the first viable editor
+        for (const editor of editors) {
+          try {
+            const success = await setEditorValue(editor, newCode);
+            if (success) {
+              return true;
+            }
+          } catch (e) {
+            console.warn(`Error applying template solution to ${editor.type} editor:`, e);
+          }
+        }
+      }
+    }
+    
+    // For GFG driver code format
+    const driverCodePattern = /\/\/\{\s*Driver\s+Code\s+Starts[\s\S]*?\/\/\s*\}\s*Driver\s+Code\s+Ends/i;
+    if (driverCodePattern.test(currentCode)) {
+      // Extract driver code sections
+      const match = currentCode.match(/([\s\S]*class\s+Solution[^{]*{)([^}]*)(}[\s\S]*)/);
+      if (match) {
+        const [fullMatch, prefix, solutionPlaceholder, suffix] = match;
+        
+        // Create new code with solution inserted between prefix and suffix
+        const newCode = `${prefix}${solutionClassContent}${suffix}`;
+        
+        // Apply to the first viable editor
+        for (const editor of editors) {
+          try {
+            const success = await setEditorValue(editor, newCode);
+            if (success) {
+              return true;
+            }
+          } catch (e) {
+            console.warn(`Error applying driver code solution to ${editor.type} editor:`, e);
+          }
+        }
+      }
+    }
+    
+    return false;
+  } catch (e) {
+    console.error('Error in applyTemplateSolution:', e);
+    return false;
+  }
+};
+
+// Last resort: Script injection approach
+const injectEditorScript = async (solution) => {
+  try {
+    console.log('DEBUG - Trying script injection as last resort');
+    
+    const script = document.createElement('script');
+    script.textContent = `
+      (function() {
+        try {
+          const solution = ${JSON.stringify(solution)};
+          
+          // Try monaco editor
+          if (window.monaco?.editor) {
+            const editors = window.monaco.editor.getEditors();
+            if (editors.length > 0) {
+              const editor = editors[0];
+              const model = editor.getModel();
+              if (model) {
+                model.setValue(solution);
+                console.log('Script set monaco editor value');
+                return;
+              }
+            }
+          }
+          
+          // Try all known Monaco locations (for platforms like HackerRank)
+          const monacoLocations = [
+            'hackerrank_r_krackjack',
+            '_monaco',
+            'monaco',
+            'MonacoEnvironment',
+            'MonacoEditor'
+          ];
+          
+          for (const loc of monacoLocations) {
+            if (window[loc]?.editor) {
+              const editors = window[loc].editor.getEditors();
+              if (editors && editors.length > 0) {
+                const model = editors[0].getModel();
+                if (model) {
+                  model.setValue(solution);
+                  console.log('Script set monaco editor value from ' + loc);
+                  return;
+                }
+              }
+            }
+          }
+          
+          // Try ace editor
+          if (window.ace) {
+            const aceElements = document.querySelectorAll('.ace_editor');
+            for (const element of aceElements) {
+              try {
+                const editor = ace.edit(element);
+                editor.setValue(solution, -1);
+                console.log('Script set ace editor value');
+                return;
+              } catch (e) {
+                console.error('Error setting ace value:', e);
+              }
+            }
+          }
+          
+          // Try CodeMirror
+          if (window.CodeMirror) {
+            const cmElements = document.querySelectorAll('.CodeMirror');
+            for (const element of cmElements) {
+              try {
+                if (element.CodeMirror) {
+                  element.CodeMirror.setValue(solution);
+                  console.log('Script set CodeMirror value');
+                  return;
+                }
+              } catch (e) {
+                console.error('Error setting CodeMirror value:', e);
+              }
+            }
+          }
+          
+          // Try setting on DOM elements
+          const editorContainers = [
+            document.querySelector('#editor'),
+            document.querySelector('[class*="editor"]'),
+            document.querySelector('[class*="code-area"]')
+          ].filter(Boolean);
+          
+          for (const container of editorContainers) {
+            // Try textareas
+            const textareas = container.querySelectorAll('textarea');
+            for (const textarea of textareas) {
+              textarea.value = solution;
+              textarea.dispatchEvent(new Event('input', { bubbles: true }));
+              console.log('Script set textarea value');
+              return;
+            }
+            
+            // Try contenteditable
+            const editables = container.querySelectorAll('[contenteditable="true"]');
+            for (const editable of editables) {
+              editable.textContent = solution;
+              editable.dispatchEvent(new Event('input', { bubbles: true }));
+              console.log('Script set contenteditable value');
+              return;
+            }
+            
+            // Try plain editors (AtCoder)
+            const plainEditors = container.querySelectorAll('.plain, [class="plain"]');
+            for (const plain of plainEditors) {
+              const plainTextarea = plain.querySelector('textarea');
+              if (plainTextarea) {
+                plainTextarea.value = solution;
+                plainTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+              } else {
+                plain.textContent = solution;
+              }
+              console.log('Script set plain editor value');
+              return;
+            }
+            
+            // Try prettyprint (AtCoder)
+            const prettyEditors = container.querySelectorAll('pre.prettyprint');
+            for (const pretty of prettyEditors) {
+              const prettyInput = pretty.querySelector('textarea, input');
+              if (prettyInput) {
+                prettyInput.value = solution;
+                prettyInput.dispatchEvent(new Event('input', { bubbles: true }));
+              } else {
+                pretty.textContent = solution;
+              }
+              console.log('Script set prettyprint editor value');
+              return;
+            }
+          }
+          
+          console.log('Script could not find any suitable editor to modify');
+        } catch (e) {
+          console.error('Error in solution script:', e);
+        }
+      })();
+    `;
+    
+    document.head.appendChild(script);
+    script.remove();
+    
+    // Wait a bit for the script to execute
+    await new Promise(resolve => setTimeout(resolve, 800));
+    
+    // We can't directly know if it succeeded, so we'll assume it might have
+    return true;
+  } catch (error) {
+    console.error('Error in injectEditorScript:', error);
+    return false;
   }
 };
 
