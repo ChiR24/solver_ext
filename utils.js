@@ -2436,14 +2436,16 @@ const applyUniversalSolution = async (solution, platform, hasSolutionClass = fal
   try {
     console.debug('DEBUG - Using universal editor approach');
     
-    // Get the current hostname
+    // Check if we're on GeeksForGeeks
     const hostname = window.location.hostname;
-    const isGeeksForGeeks = hostname.includes('geeksforgeeks.org');
+    const isGeeksForGeeks = hostname.includes('geeksforgeeks.org') || 
+                           hostname.includes('practice.geeksforgeeks.org') || 
+                           hostname.includes('ide.geeksforgeeks.org');
     
     // Special handling for GeeksForGeeks
     if (isGeeksForGeeks) {
       console.debug('DEBUG - Using GeeksForGeeks-specific approach');
-      
+
       // Try to use the window.setEditorValue function if it exists (set by our editor bridge)
       if (typeof window.setEditorValue === 'function') {
         console.debug('DEBUG - Using window.setEditorValue function');
@@ -2454,62 +2456,127 @@ const applyUniversalSolution = async (solution, platform, hasSolutionClass = fal
         }
       }
       
-      // Try to use the Ace editor directly
-      if (window.ace && typeof window.ace.edit === 'function') {
-        try {
-          // Find all ace editor instances
-          const editorElements = document.querySelectorAll('.ace_editor');
-          if (editorElements.length > 0) {
-            for (const editorElement of editorElements) {
-              try {
-                const aceEditor = window.ace.edit(editorElement);
-                if (aceEditor && typeof aceEditor.setValue === 'function') {
-                  console.debug('DEBUG - Setting value directly on Ace editor instance');
-                  aceEditor.setValue(solution);
-                  aceEditor.clearSelection();
+      // If window.setEditorValue is not available or failed, try direct access to Ace editor
+      if (window.ace && window.ace.edit) {
+        console.debug('DEBUG - Trying direct access to Ace editor');
+        
+        // Try to find Ace editor instances
+        const aceEditorElements = document.querySelectorAll('.ace_editor');
+        if (aceEditorElements.length > 0) {
+          console.debug(`DEBUG - Found ${aceEditorElements.length} Ace editor elements`);
+          
+          // Try each editor element
+          for (const editorElement of aceEditorElements) {
+            try {
+              // Try to get the editor instance
+              const editorId = editorElement.id;
+              if (editorId) {
+                const editor = window.ace.edit(editorId);
+                if (editor && typeof editor.setValue === 'function') {
+                  editor.setValue(solution);
+                  editor.clearSelection();
+                  console.debug('DEBUG - Successfully set Ace editor value directly');
                   return true;
                 }
-              } catch (aceError) {
-                console.debug('DEBUG - Error accessing specific Ace editor:', aceError);
+              } else {
+                // Try without ID
+                const editor = window.ace.edit(editorElement);
+                if (editor && typeof editor.setValue === 'function') {
+                  editor.setValue(solution);
+                  editor.clearSelection();
+                  console.debug('DEBUG - Successfully set Ace editor value directly');
+                  return true;
+                }
               }
+            } catch (e) {
+              console.error('Error accessing Ace editor instance:', e);
             }
           }
-          
-          // If we couldn't find the editor through the DOM, try the global instance
-          if (window.editor && typeof window.editor.setValue === 'function') {
-            console.debug('DEBUG - Setting value on global editor instance');
+        }
+        
+        // Try to find global editor instance
+        console.debug('DEBUG - Looking for global editor instance');
+        if (window.editor && typeof window.editor.setValue === 'function') {
+          try {
             window.editor.setValue(solution);
             window.editor.clearSelection();
+            console.debug('DEBUG - Successfully set global editor value');
             return true;
+          } catch (e) {
+            console.error('Error setting global editor value:', e);
           }
-          
-          // Try smartSolverAceEditor (set by our editor bridge)
-          if (window.smartSolverAceEditor && typeof window.smartSolverAceEditor.setValue === 'function') {
-            console.debug('DEBUG - Setting value on smartSolverAceEditor');
+        }
+        
+        // Try to find smartSolverAceEditor
+        if (window.smartSolverAceEditor && typeof window.smartSolverAceEditor.setValue === 'function') {
+          try {
             window.smartSolverAceEditor.setValue(solution);
             window.smartSolverAceEditor.clearSelection();
+            console.debug('DEBUG - Successfully set smartSolverAceEditor value');
             return true;
+          } catch (e) {
+            console.error('Error setting smartSolverAceEditor value:', e);
           }
-        } catch (aceError) {
-          console.debug('DEBUG - Error accessing Ace editor:', aceError);
+        }
+        
+        // Last resort: scan window properties for editor-like objects
+        try {
+          for (const key in window) {
+            if (key.includes('editor') && window[key] && typeof window[key].setValue === 'function') {
+              window[key].setValue(solution);
+              if (typeof window[key].clearSelection === 'function') {
+                window[key].clearSelection();
+              }
+              console.debug(`DEBUG - Successfully set ${key} value`);
+              return true;
+            }
+          }
+        } catch (e) {
+          console.error('Error scanning window for editor objects:', e);
         }
       }
       
-      // If we couldn't use Ace directly, try to find and modify the textarea
+      // If Ace editor approach failed, try to find and use textareas
+      console.debug('DEBUG - Trying textarea approach');
       const textareas = document.querySelectorAll('textarea');
-      for (const textarea of textareas) {
-        if (textarea.classList.contains('inputArea') || 
-            textarea.id === 'code' || 
-            textarea.getAttribute('data-role') === 'editor') {
-          console.debug('DEBUG - Setting value on textarea');
-          textarea.value = solution;
-          
-          // Dispatch events to ensure the change is recognized
-          textarea.dispatchEvent(new Event('input', { bubbles: true }));
-          textarea.dispatchEvent(new Event('change', { bubbles: true }));
-          return true;
+      if (textareas.length > 0) {
+        console.debug(`DEBUG - Found ${textareas.length} textareas`);
+        
+        // Try each textarea
+        for (const textarea of textareas) {
+          try {
+            // Check if this looks like a code editor textarea
+            const isCodeEditor = 
+              textarea.classList.contains('ace_text-input') || 
+              textarea.id.includes('code') || 
+              textarea.id.includes('editor') ||
+              textarea.name.includes('code') || 
+              textarea.name.includes('editor') ||
+              textarea.getAttribute('data-role') === 'editor';
+              
+            if (isCodeEditor || textareas.length === 1) {
+              // Set value and dispatch events
+              textarea.value = solution;
+              textarea.dispatchEvent(new Event('input', { bubbles: true }));
+              textarea.dispatchEvent(new Event('change', { bubbles: true }));
+              console.debug('DEBUG - Successfully set textarea value');
+              return true;
+            }
+          } catch (e) {
+            console.error('Error setting textarea value:', e);
+          }
         }
       }
+      
+      // If all direct approaches failed, try script injection as last resort
+      console.debug('DEBUG - Trying script injection as last resort');
+      const scriptResult = await injectEditorScript(solution);
+      if (scriptResult) {
+        console.debug('DEBUG - Successfully applied solution using script injection');
+        return true;
+      }
+      
+      return false;
     } else {
       // Standard approach for other platforms
       
@@ -2519,8 +2586,8 @@ const applyUniversalSolution = async (solution, platform, hasSolutionClass = fal
           const success = await applyTemplateSolution(solution, solutionClassContent);
           if (success) {
             console.debug('DEBUG - Successfully applied template-aware solution');
-            return true;
-          }
+                    return true;
+                  }
         } catch (e) {
           console.warn('DEBUG - Template-aware application failed:', e);
           // Fall back to other methods if template approach fails
@@ -2548,9 +2615,6 @@ const applyUniversalSolution = async (solution, platform, hasSolutionClass = fal
         }
       }
     }
-    
-    // If all direct approaches fail, try script injection as last resort
-    return await injectEditorScript(solution);
   } catch (error) {
     console.error('Error in applyUniversalSolution:', error);
     return false;
@@ -2785,11 +2849,11 @@ const setEditorValue = async (editor, value) => {
           plainTextarea.value = value;
           plainTextarea.dispatchEvent(new Event('input', { bubbles: true }));
           plainTextarea.dispatchEvent(new Event('change', { bubbles: true }));
-        } else {
+              } else {
           editor.element.textContent = value;
           editor.element.dispatchEvent(new Event('input', { bubbles: true }));
         }
-        return true;
+                  return true;
       
       case 'prettyprint':
         // For AtCoder's prettyprint editor
@@ -2837,8 +2901,8 @@ const setEditorValue = async (editor, value) => {
       
       default:
         return false;
-    }
-  } catch (e) {
+              }
+            } catch (e) {
     console.error(`Error setting value in ${editor.type} editor:`, e);
     return false;
   }
@@ -2999,7 +3063,7 @@ const injectEditorScript = async (solution) => {
           }
           
           // If we couldn't find the editor through the DOM, try the global instance
-          if (window.editor && typeof window.editor.setValue === 'function') {
+        if (window.editor && typeof window.editor.setValue === 'function') {
             console.debug('DEBUG - Setting value on global editor instance');
             window.editor.setValue(solution);
             window.editor.clearSelection();
