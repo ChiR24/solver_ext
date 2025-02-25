@@ -538,7 +538,7 @@
     debugHistory: [],
     maxDebugHistory: 20,
     initializationAttempts: 0,
-    maxInitAttempts: 100, // Increased from 50 to 100 for more attempts
+    maxInitAttempts: 3, // Reduced from 100 to 3 for faster failure
     directAccessInitialized: false,
 
     // Helper to log debug info - only for critical editor issues

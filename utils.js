@@ -1691,7 +1691,7 @@ const waitForEditor = async () => {
   // For HackerRank, use the specialized bridge
   if (window.location.hostname.includes('hackerrank.com')) {
     console.log('Using HackerRank editor bridge');
-    const maxRetries = 10; // Increased from 5 to 10
+    const maxRetries = 3; // Reduced from 10 to 3 for faster failure
     const retryDelay = 1000;
 
     // Ensure the bridge is initialized
@@ -2066,7 +2066,7 @@ const applyCodeSolution = async (solution) => {
     }
 
     // Get editor and update content with more retries for HackerRank
-    const maxRetries = window.location.hostname.includes('hackerrank.com') ? 3 : 1;
+    const maxRetries = 3; // Set to 3 for all platforms
     const retryDelay = 1000;
 
     let retryCount = 0;

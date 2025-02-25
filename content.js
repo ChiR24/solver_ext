@@ -146,7 +146,7 @@ async function handleSolveRequest() {
       console.log('DEBUG - HackerRank detected, checking editor bridge');
       
       // If bridge not initialized or failed, try to reinitialize
-      if (!window.HackerRankBridge || window.HackerRankBridge.initializationAttempts > 50) {
+      if (!window.HackerRankBridge || window.HackerRankBridge.initializationAttempts > 3) {
         console.log('DEBUG - Reinitializing HackerRank bridge');
         
         // Try to reinitialize the bridge
