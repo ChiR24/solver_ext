@@ -89,6 +89,12 @@ const platformSelectors = {
     description: '[class*="problems_problem_content"], [class*="problem-statement"], #problem-statement',
     editor: '#ace_editor, .ace_editor, [class*="code-editor"]',
     template: '[class*="starter-code"], [class*="initial-code"], pre[class*="language-"]'
+  },
+  atcoder: {
+    title: '.h2, span.h2, h2, .contest-title, .header-title, span.header, #task-statement span[class="lang-en"] > h3, #task-statement h3',
+    description: '#task-statement span[class="lang-en"], #task-statement .part, #task-statement, [class*="task-statement"], #task-statement div[class="lang-en"]',
+    editor: '#select-editor + div, #editor, [class="plain"], pre.prettyprint, div.editor-div, [class^="ace_editor"]',
+    template: '[id="default-code"], [id^="default-code-"], #default-code-panel, #code-editor'
   }
 };
 
@@ -162,11 +168,12 @@ const extractProblemDetails = async () => {
       return extractLeetCodeProblem();
     case 'geeksforgeeks':
       return extractGeeksForGeeksProblem();
+    case 'atcoder':
+      return extractAtCoderProblem();
     case 'hackerrank':
     case 'codewars':
     case 'hackerearth':
     case 'codeforces':
-    case 'atcoder':
     case 'spoj':
     case 'interviewbit':
       return extractPlatformProblem(type);
@@ -681,11 +688,42 @@ const waitForElement = async (selector, timeout = 2000) => { // Reduced default 
             if (element) break;
           }
         }
+        
+        // If still not found, try iframes
+        if (!element && (Date.now() - startTime < timeout * 0.6)) {
+          const iframes = document.querySelectorAll('iframe');
+          for (const iframe of iframes) {
+            try {
+              // Skip cross-origin iframes
+              if (!iframe.contentDocument) continue;
+              
+              element = iframe.contentDocument.querySelector(selector);
+              if (element && isElementVisible(element)) break;
+            } catch (e) {
+              // Cross-origin access will throw errors, ignore
+            }
+          }
+        }
       } else if (Array.isArray(selector)) {
         // Try each selector until we find a visible element
         for (const s of selector) {
           element = document.querySelector(s);
           if (element && isElementVisible(element)) break;
+          
+          // If not found, try iframes for each selector
+          if (!element || !isElementVisible(element)) {
+            const iframes = document.querySelectorAll('iframe');
+            for (const iframe of iframes) {
+              try {
+                if (!iframe.contentDocument) continue;
+                element = iframe.contentDocument.querySelector(s);
+                if (element && isElementVisible(element)) break;
+              } catch (e) {
+                // Ignore cross-origin errors
+              }
+            }
+            if (element && isElementVisible(element)) break;
+          }
         }
       }
         
@@ -766,6 +804,7 @@ const detectLanguage = () => {
 // Helper function to normalize language names
 const normalizeLanguage = (lang) => {
   const langMap = {
+    // Basic mappings
     'py': 'python',
     'python3': 'python',
     'js': 'javascript',
@@ -773,11 +812,64 @@ const normalizeLanguage = (lang) => {
     'cpp': 'cpp',
     'c++': 'cpp',
     'java': 'java',
-    // Add more mappings as needed
+    
+    // AtCoder-specific mappings
+    'gcc': 'c',
+    'clang': 'c',
+    'pypy': 'python',
+    'pypy3': 'python',
+    'cpython': 'python',
+    'csharp': 'csharp',
+    'cs': 'csharp',
+    'c#': 'csharp',
+    'fsharp': 'fsharp',
+    'f#': 'fsharp',
+    'brainfuck': 'brainfuck',
+    'ruby': 'ruby',
+    'bash': 'bash',
+    'sh': 'bash',
+    'shell': 'bash',
+    'perl': 'perl',
+    'php': 'php',
+    'kotlin': 'kotlin',
+    'swift': 'swift',
+    'rust': 'rust',
+    'go': 'go',
+    'golang': 'go',
+    'haskell': 'haskell',
+    'ocaml': 'ocaml',
+    'julia': 'julia',
+    'crystal': 'crystal',
+    'nim': 'nim',
+    'd': 'd',
+    'pascal': 'pascal',
+    'lisp': 'lisp',
+    'lua': 'lua',
+    'scheme': 'scheme',
+    'scala': 'scala',
+    'text': 'text'
   };
 
-  const normalized = lang.toLowerCase().replace(/[^a-z0-9+]/g, '');
-  return langMap[normalized] || normalized;
+  // Handle compound names like "C++ 20 (gcc 12.2)"
+  const normalized = lang.toLowerCase().trim();
+  
+  // Check for common prefixes
+  if (normalized.startsWith('c++') || normalized.startsWith('cpp')) {
+    return 'cpp';
+  } else if (normalized.startsWith('python')) {
+    return 'python';
+  } else if (normalized.startsWith('java ')) {
+    return 'java';
+  } else if (normalized.startsWith('c#') || normalized.startsWith('c sharp')) {
+    return 'csharp';
+  } else if (normalized.startsWith('javascript') || normalized.startsWith('node')) {
+    return 'javascript';
+  }
+  
+  // Extract just the language name without version or compiler info
+  const simplifiedLang = normalized.split(/[\s\(\d]/)[0].replace(/[^a-z0-9+#]/g, '');
+  
+  return langMap[simplifiedLang] || simplifiedLang;
 };
 
 // Extract problem details from any website
@@ -2589,5 +2681,246 @@ const extractGeeksForGeeksProblem = async () => {
   } catch (error) {
     console.error('DEBUG - Error extracting GeeksForGeeks problem:', error);
     throw error;
+  }
+};
+
+// Extract problem from AtCoder
+const extractAtCoderProblem = async () => {
+  try {
+    console.log('DEBUG - Starting AtCoder problem extraction');
+
+    // Get title - AtCoder usually has problem title in different formats
+    // Typically found in h3 elements within #task-statement
+    const titleSelectors = [
+      '#task-statement h3:first-of-type',
+      '#task-statement span.lang-en > h3',
+      '#task-statement span.lang-ja + span.lang-en > h3',
+      '.contest-title',
+      '.header-title',
+      'h2',
+      'span.h2',
+      // Sometimes problem code is separate from title
+      'h1 > a',
+      'title'  // Fallback to page title
+    ];
+
+    let title = null;
+    for (const selector of titleSelectors) {
+      const element = document.querySelector(selector);
+      if (element) {
+        const text = element.textContent.trim();
+        if (text && text.length > 1) {
+          title = { textContent: text };
+          console.log('DEBUG - Found AtCoder title:', text);
+          break;
+        }
+      }
+    }
+
+    // If no title found yet, try to get from URL
+    if (!title) {
+      const problemCode = location.pathname.split('/').pop();
+      if (problemCode) {
+        title = { textContent: `Problem ${problemCode.toUpperCase()}` };
+        console.log('DEBUG - Using problem code as title:', title.textContent);
+      }
+    }
+
+    // Get description - AtCoder usually has the description in #task-statement with language spans
+    // First try to find English version
+    const engStatement = document.querySelector('#task-statement span.lang-en');
+    const anyStatement = document.querySelector('#task-statement');
+    
+    let description = null;
+    if (engStatement) {
+      // Found English statement
+      description = { textContent: engStatement.textContent.trim() };
+      console.log('DEBUG - Found English description, length:', description.textContent.length);
+    } else if (anyStatement) {
+      // Use the whole statement container
+      description = { textContent: anyStatement.textContent.trim() };
+      console.log('DEBUG - Using full task statement, length:', description.textContent.length);
+    }
+
+    // If still no description, look for any content
+    if (!description) {
+      const fallbackSelectors = [
+        '.part',
+        '[class*="task-statement"]',
+        '.description',
+        '[id*="task"]'
+      ];
+      
+      for (const selector of fallbackSelectors) {
+        const element = document.querySelector(selector);
+        if (element) {
+          const text = element.textContent.trim();
+          if (text && text.length > 50) {
+            description = { textContent: text };
+            console.log('DEBUG - Found description using fallback selector:', selector);
+            break;
+          }
+        }
+      }
+    }
+
+    // Get editor - AtCoder usually has a custom editor or ACE editor
+    const editorSelectors = [
+      '#select-editor + div',
+      '#editor', 
+      '[class="plain"]',
+      'pre.prettyprint',
+      'div.editor-div',
+      '[class^="ace_editor"]'
+    ];
+    
+    let editor = null;
+    for (const selector of editorSelectors) {
+      const element = document.querySelector(selector);
+      if (element) {
+        editor = element;
+        console.log('DEBUG - Found AtCoder editor:', selector);
+        break;
+      }
+    }
+
+    // Get language - AtCoder allows language selection
+    const language = await getAtCoderLanguage();
+    console.log('DEBUG - Detected language:', language);
+
+    // Get template
+    const template = await getAtCoderTemplate();
+    console.log('DEBUG - Found template:', !!template);
+
+    // If title or description still not found, try to patch together from available information
+    if (!title && !description && editor) {
+      // For AtCoder, if we have an editor but no problem details, we can still attempt to solve
+      // This might happen due to complex DOM or frames
+      const urlParts = window.location.pathname.split('/');
+      const problemCode = urlParts[urlParts.length - 1];
+      const contestCode = urlParts[urlParts.length - 3] || '';
+      
+      title = { textContent: `AtCoder ${contestCode.toUpperCase()} - Problem ${problemCode.toUpperCase()}` };
+      description = { textContent: `Problem from AtCoder contest ${contestCode}, problem ${problemCode}. Please check the problem statement on the left side of the page.` };
+      
+      console.log('DEBUG - Using constructed title and description');
+    } else if (!title || !description) {
+      throw new Error('Could not find problem title or description. Please make sure the problem page is fully loaded.');
+    }
+
+    return {
+      type: 'atcoder',
+      title: title.textContent,
+      description: description.textContent,
+      codeTemplate: template || '',
+      language: language || detectLanguage() || 'cpp'  // Default to C++ if language not detected
+    };
+  } catch (error) {
+    console.error('DEBUG - Error extracting AtCoder problem:', error);
+    throw error;
+  }
+};
+
+// Helper function to get AtCoder language
+const getAtCoderLanguage = async () => {
+  try {
+    // Check language selector
+    const languageSelect = document.querySelector('#select-lang') || 
+                           document.querySelector('select[name="language_id"]');
+    
+    if (languageSelect) {
+      const selectedOption = languageSelect.options[languageSelect.selectedIndex];
+      if (selectedOption) {
+        const langText = selectedOption.textContent.trim().toLowerCase();
+        console.log('DEBUG - Found language from selector:', langText);
+        return normalizeLanguage(langText);
+      }
+    }
+    
+    // Check if language is shown in the UI somewhere
+    const languageIndicators = [
+      '#language-selector .active',
+      '.language-selector .active',
+      '[class*="language"] .active',
+      '[class*="lang-select"]'
+    ];
+    
+    for (const selector of languageIndicators) {
+      const element = document.querySelector(selector);
+      if (element) {
+        const langText = element.textContent.trim().toLowerCase();
+        if (langText) {
+          console.log('DEBUG - Found language from UI:', langText);
+          return normalizeLanguage(langText);
+        }
+      }
+    }
+    
+    // Default language for AtCoder is often C++
+    return 'cpp';
+  } catch (error) {
+    console.error('DEBUG - Error detecting AtCoder language:', error);
+    return 'cpp';
+  }
+};
+
+// Helper function to get AtCoder template
+const getAtCoderTemplate = async () => {
+  try {
+    // First try to get from editor
+    const editors = [
+      window.ace?.edit && document.querySelector('.ace_editor') && window.ace.edit(document.querySelector('.ace_editor')),
+      window.editor, // AtCoder might assign editor to window.editor
+      document.querySelector('#editor')?.editor
+    ].filter(Boolean);
+    
+    for (const editor of editors) {
+      try {
+        if (editor && typeof editor.getValue === 'function') {
+          const value = editor.getValue();
+          if (value) {
+            console.log('DEBUG - Found template in editor');
+            return value;
+          }
+        }
+      } catch (e) {
+        console.error('DEBUG - Error accessing editor:', e);
+      }
+    }
+    
+    // If no editor, try getting from DOM elements
+    const templateSelectors = [
+      '#default-code',
+      '[id^="default-code-"]',
+      '#source-code',
+      'pre[id*="code"]',
+      'pre.prettyprint',
+      'pre[class*="editor"]'
+    ];
+    
+    for (const selector of templateSelectors) {
+      const element = document.querySelector(selector);
+      if (element) {
+        const text = element.textContent.trim();
+        if (text) {
+          console.log('DEBUG - Found template in element:', selector);
+          return text;
+        }
+      }
+    }
+    
+    // If still no template, try looking for hidden input with code
+    const hiddenInputs = document.querySelectorAll('input[type="hidden"][name*="code"]');
+    for (const input of hiddenInputs) {
+      if (input.value) {
+        console.log('DEBUG - Found template in hidden input');
+        return input.value;
+      }
+    }
+    
+    return '';
+  } catch (error) {
+    console.error('DEBUG - Error getting AtCoder template:', error);
+    return '';
   }
 };    
