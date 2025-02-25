@@ -1,0 +1,144 @@
+warning: in the working copy of 'utils.js', LF will be replaced by CRLF the next time Git touches it
+[1mdiff --git a/utils.js b/utils.js[m
+[1mindex 3d9263f..cfeee77 100644[m
+[1m--- a/utils.js[m
+[1m+++ b/utils.js[m
+[36m@@ -2436,14 +2436,16 @@[m [mconst applyUniversalSolution = async (solution, platform, hasSolutionClass = fal[m
+   try {[m
+     console.debug('DEBUG - Using universal editor approach');[m
+     [m
+[31m-    // Get the current hostname[m
+[32m+[m[32m    // Check if we're on GeeksForGeeks[m
+     const hostname = window.location.hostname;[m
+[31m-    const isGeeksForGeeks = hostname.includes('geeksforgeeks.org');[m
+[32m+[m[32m    const isGeeksForGeeks = hostname.includes('geeksforgeeks.org') ||[m[41m [m
+[32m+[m[32m                           hostname.includes('practice.geeksforgeeks.org') ||[m[41m [m
+[32m+[m[32m                           hostname.includes('ide.geeksforgeeks.org');[m
+     [m
+     // Special handling for GeeksForGeeks[m
+     if (isGeeksForGeeks) {[m
+       console.debug('DEBUG - Using GeeksForGeeks-specific approach');[m
+[31m-      [m
+[32m+[m
+       // Try to use the window.setEditorValue function if it exists (set by our editor bridge)[m
+       if (typeof window.setEditorValue === 'function') {[m
+         console.debug('DEBUG - Using window.setEditorValue function');[m
+[36m@@ -2454,103 +2456,149 @@[m [mconst applyUniversalSolution = async (solution, platform, hasSolutionClass = fal[m
+         }[m
+       }[m
+       [m
+[31m-      // Try to use the Ace editor directly[m
+[31m-      if (window.ace && typeof window.ace.edit === 'function') {[m
+[31m-        try {[m
+[31m-          // Find all ace editor instances[m
+[31m-          const editorElements = document.querySelectorAll('.ace_editor');[m
+[31m-          if (editorElements.length > 0) {[m
+[31m-            for (const editorElement of editorElements) {[m
+[31m-              try {[m
+[31m-                const aceEditor = window.ace.edit(editorElement);[m
+[31m-                if (aceEditor && typeof aceEditor.setValue === 'function') {[m
+[31m-                  console.debug('DEBUG - Setting value directly on Ace editor instance');[m
+[31m-                  aceEditor.setValue(solution);[m
+[31m-                  aceEditor.clearSelection();[m
+[32m+[m[32m      // If window.setEditorValue is not available or failed, try direct access to Ace editor[m
+[32m+[m[32m      if (window.ace && window.ace.edit) {[m
+[32m+[m[32m        console.debug('DEBUG - Trying direct access to Ace editor');[m
+[32m+[m[41m        [m
+[32m+[m[32m        // Try to find Ace editor instances[m
+[32m+[m[32m        const aceEditorElements = document.querySelectorAll('.ace_editor');[m
+[32m+[m[32m        if (aceEditorElements.length > 0) {[m
+[32m+[m[32m          console.debug(`DEBUG - Found ${aceEditorElements.length} Ace editor elements`);[m
+[32m+[m[41m          [m
+[32m+[m[32m          // Try each editor element[m
+[32m+[m[32m          for (const editorElement of aceEditorElements) {[m
+[32m+[m[32m            try {[m
+[32m+[m[32m              // Try to get the editor instance[m
+[32m+[m[32m              const editorId = editorElement.id;[m
+[32m+[m[32m              if (editorId) {[m
+[32m+[m[32m                const editor = window.ace.edit(editorId);[m
+[32m+[m[32m                if (editor && typeof editor.setValue === 'function') {[m
+[32m+[m[32m                  editor.setValue(solution);[m
+[32m+[m[32m                  editor.clearSelection();[m
+[32m+[m[32m                  console.debug('DEBUG - Successfully set Ace editor value directly');[m
+[32m+[m[32m                  return true;[m
+[32m+[m[32m                }[m
+[32m+[m[32m              } else {[m
+[32m+[m[32m                // Try without ID[m
+[32m+[m[32m                const editor = window.ace.edit(editorElement);[m
+[32m+[m[32m                if (editor && typeof editor.setValue === 'function') {[m
+[32m+[m[32m                  editor.setValue(solution);[m
+[32m+[m[32m                  editor.clearSelection();[m
+[32m+[m[32m                  console.debug('DEBUG - Successfully set Ace editor value directly');[m
+                   return true;[m
+                 }[m
+[31m-              } catch (aceError) {[m
+[31m-                console.debug('DEBUG - Error accessing specific Ace editor:', aceError);[m
+               }[m
+[32m+[m[32m            } catch (e) {[m
+[32m+[m[32m              console.error('Error accessing Ace editor instance:', e);[m
+             }[m
+           }[m
+[31m-          [m
+[31m-          // If we couldn't find the editor through the DOM, try the global instance[m
+[31m-          if (window.editor && typeof window.editor.setValue === 'function') {[m
+[31m-            console.debug('DEBUG - Setting value on global editor instance');[m
+[32m+[m[32m        }[m
+[32m+[m[41m        [m
+[32m+[m[32m        // Try to find global editor instance[m
+[32m+[m[32m        console.debug('DEBUG - Looking for global editor instance');[m
+[32m+[m[32m        if (window.editor && typeof window.editor.setValue === 'function') {[m
+[32m+[m[32m          try {[m
+             window.editor.setValue(solution);[m
+             window.editor.clearSelection();[m
+[32m+[m[32m            console.debug('DEBUG - Successfully set global editor value');[m
+             return true;[m
+[32m+[m[32m          } catch (e) {[m
+[32m+[m[32m            console.error('Error setting global editor value:', e);[m
+           }[m
+[31m-          [m
+[31m-          // Try smartSolverAceEditor (set by our editor bridge)[m
+[31m-          if (window.smartSolverAceEditor && typeof window.smartSolverAceEditor.setValue === 'function') {[m
+[31m-            console.debug('DEBUG - Setting value on smartSolverAceEditor');[m
+[32m+[m[32m        }[m
+[32m+[m[41m        [m
+[32m+[m[32m        // Try to find smartSolverAceEditor[m
+[32m+[m[32m        if (window.smartSolverAceEditor && typeof window.smartSolverAceEditor.setValue === 'function') {[m
+[32m+[m[32m          try {[m
+             window.smartSolverAceEditor.setValue(solution);[m
+             window.smartSolverAceEditor.clearSelection();[m
+[32m+[m[32m            console.debug('DEBUG - Successfully set smartSolverAceEditor value');[m
+             return true;[m
+[32m+[m[32m          } catch (e) {[m
+[32m+[m[32m            console.error('Error setting smartSolverAceEditor value:', e);[m
+           }[m
+[31m-        } catch (aceError) {[m
+[31m-          console.debug('DEBUG - Error accessing Ace editor:', aceError);[m
+         }[m
+       }[m
+       [m
+[31m-      // If we couldn't use Ace directly, try to find and modify the textarea[m
+[32m+[m[32m      // If Ace editor approach failed, try to find and use textareas[m
+[32m+[m[32m      console.debug('DEBUG - Trying textarea approach');[m
+       const textareas = document.querySelectorAll('textarea');[m
+[31m-      for (const textarea of textareas) {[m
+[31m-        if (textarea.classList.contains('inputArea') || [m
+[31m-            textarea.id === 'code' || [m
+[31m-            textarea.getAttribute('data-role') === 'editor') {[m
+[31m-          console.debug('DEBUG - Setting value on textarea');[m
+[31m-          textarea.value = solution;[m
+[31m-          [m
+[31m-          // Dispatch events to ensure the change is recognized[m
+[31m-          textarea.dispatchEvent(new Event('input', { bubbles: true }));[m
+[31m-          textarea.dispatchEvent(new Event('change', { bubbles: true }));[m
+[31m-          return true;[m
+[31m-        }[m
+[31m-      }[m
+[31m-    } else {[m
+[31m-      // Standard approach for other platforms[m
+[31m-      [m
+[31m-      // First try template-aware solution for platforms with templates[m
+[31m-      if (hasSolutionClass && ['leetcode', 'geeksforgeeks'].includes(platform)) {[m
+[31m-        try {[m
+[31m-          const success = await applyTemplateSolution(solution, solutionClassContent);[m
+[31m-          if (success) {[m
+[31m-            console.debu
