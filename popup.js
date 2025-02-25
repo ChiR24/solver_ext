@@ -78,6 +78,8 @@ document.addEventListener('DOMContentLoaded', () => {
       // Inject content script if auto-solve is turned on
       if (newState) {
         injectContentScript();
+        // Explicitly initialize the editor bridge
+        initializeEditorBridge();
       }
     });
   });
@@ -161,6 +163,23 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
+  // Function to explicitly initialize the editor bridge
+  function initializeEditorBridge() {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs[0]?.id) {
+        chrome.scripting.executeScript({
+          target: { tabId: tabs[0].id },
+          function: () => {
+            window.postMessage({
+              type: 'EDITOR_BRIDGE',
+              action: 'INITIALIZE'
+            }, '*');
+          }
+        }).catch(err => console.error('Failed to initialize editor bridge:', err));
+      }
+    });
+  }
+
   // Manual solve button
   solveButton.addEventListener('click', async () => {
     statusSpan.textContent = 'Solving...';
@@ -180,6 +199,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // Inject content script if not already injected
       await injectContentScript();
+      
+      // Explicitly initialize the editor bridge
+      initializeEditorBridge();
 
       // Send message to content script
       const response = await chrome.tabs.sendMessage(tab.id, { action: 'solve' });
@@ -258,6 +280,7 @@ async function injectContentScript() {
     // Inject required scripts in order
     const scripts = [
       'editor-bridges.js',  // Editor bridges first
+      'monaco-bridge.js',   // Monaco bridge
       'utils.js',          // Utils with core functionality
       'content.js'         // Main content script
     ];

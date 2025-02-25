@@ -1,3 +1,67 @@
+console.log('In CONTENT.JS');
+
+// Flag to track if the extension has been initialized
+let isInitialized = false;
+
+// Function to initialize the extension
+function initialize() {
+  if (isInitialized) return;
+  isInitialized = true;
+  
+  console.log('Initializing Smart Solver Extension');
+  
+  // Load keyboard shortcuts
+  loadKeyboardShortcut();
+  
+  // Listen for messages from popup or background
+  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request.action === 'solve') {
+      handleSolveRequest().then(result => {
+        sendResponse(result);
+      }).catch(error => {
+        console.error('Error handling solve request:', error);
+        sendResponse({ success: false, error: error.message });
+      });
+      return true; // Required for async response
+    } else if (request.action === 'ping') {
+      // Used to check if content script is loaded
+      sendResponse({ success: true });
+      return true;
+    }
+  });
+}
+
+// Check if auto-solve is enabled and initialize if needed
+chrome.storage.local.get(['autoSolve'], (result) => {
+  if (result.autoSolve) {
+    initialize();
+    startAutoSolve();
+  }
+});
+
+// Listen for keyboard shortcuts
+document.addEventListener('keydown', (event) => {
+  // Only process if not in an input field
+  if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA' || 
+      event.target.isContentEditable) {
+    return;
+  }
+  
+  // Check for keyboard shortcut
+  getShortcut().then(shortcut => {
+    if (shortcut && 
+        event.key.toLowerCase() === shortcut.key.toLowerCase() &&
+        event.ctrlKey === shortcut.ctrlKey &&
+        event.altKey === shortcut.altKey &&
+        event.shiftKey === shortcut.shiftKey) {
+      
+      event.preventDefault();
+      initialize(); // Initialize if not already
+      handleSolveRequest();
+    }
+  });
+});
+
 // Debug logger utility with performance optimizations
 const DEBUG = {
   NONE: 0,     // No logs
@@ -706,14 +770,6 @@ function stopAutoSolve() {
     logger.info('Auto-solve stopped');
   }
 }
-
-// Listen for auto-solve toggle
-chrome.storage.local.get(['autoSolve'], (result) => {
-  if (result.autoSolve) {
-    logger.info('Auto-solve enabled, starting...');
-    startAutoSolve();
-  }
-});
 
 // Log initialization
 logger.info('Content script initialized for', window.location.href); 

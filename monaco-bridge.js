@@ -1,5 +1,39 @@
 // Universal Editor Bridge Script
 (() => {
+  // Only initialize when explicitly requested or auto-solve is enabled
+  const shouldInitialize = () => {
+    return new Promise(resolve => {
+      // Check if auto-solve is enabled
+      chrome.storage.local.get(['autoSolve'], (result) => {
+        if (result.autoSolve) {
+          resolve(true);
+          return;
+        }
+        
+        // Listen for initialization message
+        const initListener = (event) => {
+          if (event.source !== window) return;
+          if (!event.data) return;
+          
+          if (event.data.type === 'EDITOR_BRIDGE' && event.data.action === 'INITIALIZE') {
+            window.removeEventListener('message', initListener);
+            resolve(true);
+          }
+        };
+        
+        window.addEventListener('message', initListener);
+        
+        // Also initialize if a solve message is received
+        chrome.runtime.onMessage.addListener((request) => {
+          if (request.action === 'solve') {
+            window.removeEventListener('message', initListener);
+            resolve(true);
+          }
+        });
+      });
+    });
+  };
+
   // Cache for editor instances and states with performance optimizations
   const editorCache = {
     monaco: null,
@@ -342,44 +376,54 @@
     }
   };
 
-  // Listen for messages with debouncing
-  window.addEventListener('message', handleMessage);
-
-  // Optimized observer setup with reduced DOM operations
-  const observerCallback = () => {
-    const state = getEditorState();
-    if (state?.hasEditor) {
-      window.postMessage({
-        type: 'EDITOR_BRIDGE',
-        action: 'EDITOR_STATE',
-        payload: state
-      }, '*');
-      observer.disconnect();
+  // Initialize only when requested
+  shouldInitialize().then(shouldInit => {
+    if (!shouldInit) {
+      console.log('[Editor Bridge] Waiting for explicit initialization');
+      return;
     }
-  };
+    
+    console.log('[Editor Bridge] Initializing');
+    
+    // Listen for messages with debouncing
+    window.addEventListener('message', handleMessage);
 
-  // Use requestIdleCallback if available, otherwise use setTimeout
-  const scheduleCheck = (callback) => {
-    if (window.requestIdleCallback) {
-      window.requestIdleCallback(callback, { timeout: 1000 });
-    } else {
-      setTimeout(callback, 100);
-    }
-  };
+    // Optimized observer setup with reduced DOM operations
+    const observerCallback = () => {
+      const state = getEditorState();
+      if (state?.hasEditor) {
+        window.postMessage({
+          type: 'EDITOR_BRIDGE',
+          action: 'EDITOR_STATE',
+          payload: state
+        }, '*');
+        observer.disconnect();
+      }
+    };
 
-  // Create a single observer with optimized options
-  const observer = new MutationObserver(() => {
+    // Use requestIdleCallback if available, otherwise use setTimeout
+    const scheduleCheck = (callback) => {
+      if (window.requestIdleCallback) {
+        window.requestIdleCallback(callback, { timeout: 1000 });
+      } else {
+        setTimeout(callback, 100);
+      }
+    };
+
+    // Create a single observer with optimized options
+    const observer = new MutationObserver(() => {
+      scheduleCheck(observerCallback);
+    });
+
+    // Start observing with optimized configuration
+    observer.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+      attributes: false,
+      characterData: false
+    });
+
+    // Initial check
     scheduleCheck(observerCallback);
   });
-
-  // Start observing with optimized configuration
-  observer.observe(document.documentElement, {
-    childList: true,
-    subtree: true,
-    attributes: false,
-    characterData: false
-  });
-
-  // Initial check
-  scheduleCheck(observerCallback);
 })(); 
